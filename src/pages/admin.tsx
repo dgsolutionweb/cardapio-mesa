@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import {
-  AppBar, Toolbar, Typography, Drawer, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Divider, IconButton, Button, Box, Grid, Card, CardContent, CardActions, TextField, Dialog, DialogTitle, DialogContent, DialogActions, Snackbar, Alert, useTheme, useMediaQuery, CircularProgress, Avatar, Paper
+  AppBar, Toolbar, Typography, Drawer, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Divider, IconButton, Button, Box, Grid, Card, CardContent, CardActions, TextField, Dialog, DialogTitle, DialogContent, DialogActions, Snackbar, Alert, useTheme, useMediaQuery, CircularProgress, Avatar, Paper, FormControl, InputLabel, Select, MenuItem, Chip, Checkbox, FormControlLabel, Switch
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import TableBarIcon from '@mui/icons-material/TableBar';
@@ -49,7 +49,24 @@ export default function AdminPage() {
   const [menu, setMenu] = useState<any[]>([]);
   const [menuDialog, setMenuDialog] = useState(false);
   const [editingMenu, setEditingMenu] = useState<any|null>(null);
-  const [menuForm, setMenuForm] = useState({ name:'', description:'', price:'', image_url:'' });
+  const [menuForm, setMenuForm] = useState({ name:'', description:'', price:'', image_url:'', category_id:'' });
+  
+  // Categorias
+  const [categories, setCategories] = useState<any[]>([]);
+  const [categoryDialog, setCategoryDialog] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<any|null>(null);
+  const [categoryForm, setCategoryForm] = useState({ name:'', description:'', display_order:'' });
+  
+  // Adicionais
+  const [addons, setAddons] = useState<any[]>([]);
+  const [selectedAddons, setSelectedAddons] = useState<number[]>([]);
+  const [addonDialog, setAddonDialog] = useState(false);
+  const [editingAddon, setEditingAddon] = useState<any|null>(null);
+  const [addonForm, setAddonForm] = useState({ name:'', description:'', price:'' });
+  
+  // Variações de tamanho
+  const [sizeVariants, setSizeVariants] = useState<any[]>([]);
+  const [newSizeVariant, setNewSizeVariant] = useState({ size_name: '', price_modifier: '', is_default: false });
   // Drawer
   const [drawerOpen, setDrawerOpen] = useState(false);
   // QR Code
@@ -75,6 +92,8 @@ export default function AdminPage() {
     fetchTables();
     fetchMenu();
     fetchOrders();
+    fetchCategories();
+    fetchAddons();
   }, []);
   async function fetchTables() {
     setLoading(true);
@@ -129,9 +148,126 @@ export default function AdminPage() {
   }
   async function fetchMenu() {
     setLoading(true);
-    const { data } = await supabase.from('menu_items').select('*').order('id');
+    const { data, error } = await supabase
+      .from('menu_items')
+      .select('*')
+      .order('id');
+    
+    if (error) {
+      console.error('Erro ao buscar menu:', error);
+      setSnackbar({open: true, message: `Erro ao buscar menu: ${error.message}`, severity: 'error'});
+    }
+    
     if (data) setMenu(data);
     setLoading(false);
+  }
+  
+  // Funções para categorias
+  async function fetchCategories() {
+    const { data } = await supabase.from('categories').select('*').order('display_order');
+    if (data) setCategories(data);
+  }
+
+  function openCategoryDialog(category?: any) {
+    setEditingCategory(category || null);
+    setCategoryForm(category ? { 
+      name: category.name, 
+      description: category.description || '', 
+      display_order: String(category.display_order || '') 
+    } : { name:'', description:'', display_order:'' });
+    setCategoryDialog(true);
+  }
+
+  function closeCategoryDialog() { 
+    setCategoryDialog(false); 
+    setEditingCategory(null); 
+  }
+
+  async function saveCategory() {
+    if (editingCategory) {
+      await supabase.from('categories').update({ 
+        ...categoryForm, 
+        display_order: Number(categoryForm.display_order) || 0 
+      }).eq('id', editingCategory.id);
+      setSnackbar({open:true,message:'Categoria atualizada!',severity:'success'});
+    } else {
+      await supabase.from('categories').insert({ 
+        ...categoryForm, 
+        display_order: Number(categoryForm.display_order) || 0 
+      });
+      setSnackbar({open:true,message:'Categoria adicionada!',severity:'success'});
+    }
+    closeCategoryDialog();
+    fetchCategories();
+  }
+
+  async function removeCategory(id: number) {
+    await supabase.from('categories').delete().eq('id', id);
+    fetchCategories();
+    setSnackbar({open:true,message:'Categoria removida!',severity:'info'});
+  }
+
+  // Funções para adicionais
+  async function fetchAddons() {
+    const { data } = await supabase.from('addons').select('*').order('name');
+    if (data) setAddons(data);
+  }
+
+  function openAddonDialog(addon?: any) {
+    setEditingAddon(addon || null);
+    setAddonForm(addon ? { 
+      name: addon.name, 
+      description: addon.description || '', 
+      price: String(addon.price) 
+    } : { name:'', description:'', price:'' });
+    setAddonDialog(true);
+  }
+
+  function closeAddonDialog() { 
+    setAddonDialog(false); 
+    setEditingAddon(null); 
+  }
+
+  async function saveAddon() {
+    if (editingAddon) {
+      await supabase.from('addons').update({ 
+        ...addonForm, 
+        price: Number(addonForm.price) || 0 
+      }).eq('id', editingAddon.id);
+      setSnackbar({open:true,message:'Adicional atualizado!',severity:'success'});
+    } else {
+      await supabase.from('addons').insert({ 
+        ...addonForm, 
+        price: Number(addonForm.price) || 0 
+      });
+      setSnackbar({open:true,message:'Adicional adicionado!',severity:'success'});
+    }
+    closeAddonDialog();
+    fetchAddons();
+  }
+
+  async function removeAddon(id: number) {
+    await supabase.from('addons').delete().eq('id', id);
+    fetchAddons();
+    setSnackbar({open:true,message:'Adicional removido!',severity:'info'});
+  }
+
+  async function fetchSizeVariants(menuItemId: number) {
+    const { data } = await supabase
+      .from('size_variants')
+      .select('*')
+      .eq('menu_item_id', menuItemId)
+      .eq('is_active', true)
+      .order('is_default', { ascending: false });
+    if (data) setSizeVariants(data);
+  }
+  
+  async function fetchMenuItemAddons(menuItemId: number) {
+    const { data } = await supabase
+      .from('menu_item_addons')
+      .select('addon_id')
+      .eq('menu_item_id', menuItemId);
+    if (data) setSelectedAddons(data.map(item => item.addon_id));
   }
   async function addTable() {
     if (!newTable) return;
@@ -396,25 +532,161 @@ export default function AdminPage() {
   // CRUD Cardápio
   function openMenuDialog(item?:any) {
     setEditingMenu(item||null);
-    setMenuForm(item ? { ...item, price: String(item.price) } : { name:'', description:'', price:'', image_url:'' });
+    setMenuForm(item ? { 
+      ...item, 
+      price: String(item.price),
+      category_id: String(item.category_id || '') 
+    } : { 
+      name:'', 
+      description:'', 
+      price:'', 
+      image_url:'', 
+      category_id:'' 
+    });
+    
+    // Limpar dados de adicionais e variações
+    setSelectedAddons([]);
+    setSizeVariants([]);
+    setNewSizeVariant({ size_name: '', price_modifier: '', is_default: false });
+    
+    // Se estiver editando, buscar adicionais e variações existentes
+    if (item) {
+      fetchMenuItemAddons(item.id);
+      fetchSizeVariants(item.id);
+    }
+    
     setMenuDialog(true);
   }
   function closeMenuDialog() { setMenuDialog(false); setEditingMenu(null); }
   async function saveMenu() {
-    if (editingMenu) {
-      await supabase.from('menu_items').update({ ...menuForm, price: Number(menuForm.price) }).eq('id', editingMenu.id);
-      setSnackbar({open:true,message:'Item atualizado!',severity:'success'});
-    } else {
-      await supabase.from('menu_items').insert({ ...menuForm, price: Number(menuForm.price) });
-      setSnackbar({open:true,message:'Item adicionado!',severity:'success'});
+    try {
+      console.log('MenuForm data:', menuForm);
+      
+      let menuItemId;
+      
+      if (editingMenu) {
+        // Atualizar item existente
+        const updateData = { 
+          name: menuForm.name,
+          description: menuForm.description,
+          price: Number(menuForm.price),
+          image_url: menuForm.image_url,
+          category_id: menuForm.category_id ? Number(menuForm.category_id) : null
+        };
+        
+        console.log('Update data:', updateData);
+        
+        const { data, error } = await supabase
+          .from('menu_items')
+          .update(updateData)
+          .eq('id', editingMenu.id)
+          .select();
+        
+        if (error) throw error;
+        menuItemId = editingMenu.id;
+        setSnackbar({open:true,message:'Item atualizado!',severity:'success'});
+      } else {
+        // Criar novo item
+        const insertData = { 
+          name: menuForm.name,
+          description: menuForm.description,
+          price: Number(menuForm.price),
+          image_url: menuForm.image_url,
+          category_id: menuForm.category_id ? Number(menuForm.category_id) : null
+        };
+        
+        console.log('Insert data:', insertData);
+        
+        const { data, error } = await supabase
+          .from('menu_items')
+          .insert(insertData)
+          .select();
+        
+        if (error) throw error;
+        menuItemId = data[0].id;
+        setSnackbar({open:true,message:'Item adicionado!',severity:'success'});
+      }
+      
+      // Atualizar adicionais
+      if (editingMenu) {
+        // Remover associações existentes
+        await supabase
+          .from('menu_item_addons')
+          .delete()
+          .eq('menu_item_id', menuItemId);
+      }
+      
+      // Adicionar novas associações de adicionais
+      if (selectedAddons.length > 0) {
+        const addonInserts = selectedAddons.map(addonId => ({
+          menu_item_id: menuItemId,
+          addon_id: addonId
+        }));
+        
+        await supabase
+          .from('menu_item_addons')
+          .insert(addonInserts);
+      }
+      
+      // Atualizar variações de tamanho
+      if (editingMenu) {
+        // Remover variações existentes
+        await supabase
+          .from('size_variants')
+          .delete()
+          .eq('menu_item_id', menuItemId);
+      }
+      
+      // Adicionar novas variações de tamanho
+      if (sizeVariants.length > 0) {
+        const variantInserts = sizeVariants.map(variant => ({
+          menu_item_id: menuItemId,
+          size_name: variant.size_name,
+          price_modifier: Number(variant.price_modifier),
+          is_default: variant.is_default
+        }));
+        
+        await supabase
+          .from('size_variants')
+          .insert(variantInserts);
+      }
+      
+      closeMenuDialog();
+      fetchMenu();
+    } catch (error) {
+      console.error('Erro ao salvar item:', error);
+      setSnackbar({open:true,message:`Erro ao salvar: ${error.message}`,severity:'error'});
     }
-    closeMenuDialog();
-    fetchMenu();
   }
   async function removeMenu(id:number) {
     await supabase.from('menu_items').delete().eq('id', id);
     fetchMenu();
     setSnackbar({open:true,message:'Item removido!',severity:'info'});
+  }
+
+  // Funções para gerenciar variações de tamanho
+  function addSizeVariant() {
+    if (!newSizeVariant.size_name || !newSizeVariant.price_modifier) return;
+    
+    setSizeVariants(prev => [...prev, {
+      ...newSizeVariant,
+      price_modifier: Number(newSizeVariant.price_modifier),
+      id: Date.now() // ID temporário para controle local
+    }]);
+    
+    setNewSizeVariant({ size_name: '', price_modifier: '', is_default: false });
+  }
+  
+  function removeSizeVariant(index: number) {
+    setSizeVariants(prev => prev.filter((_, i) => i !== index));
+  }
+  
+  function toggleAddon(addonId: number) {
+    setSelectedAddons(prev => 
+      prev.includes(addonId) 
+        ? prev.filter(id => id !== addonId)
+        : [...prev, addonId]
+    );
   }
 
   // Navegação Drawer
@@ -564,14 +836,32 @@ export default function AdminPage() {
                     <Typography variant="h5" sx={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 1 }}>
                       <RestaurantMenuIcon /> Cardápio
                     </Typography>
-                    <Button
-                      variant="contained"
-                      startIcon={<AddIcon />}
-                      onClick={() => openMenuDialog()}
-                      sx={{ borderRadius: 2 }}
-                    >
-                      Novo Item
-                    </Button>
+                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        onClick={() => openCategoryDialog()}
+                        sx={{ borderRadius: 2 }}
+                      >
+                        Categorias
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        onClick={() => openAddonDialog()}
+                        sx={{ borderRadius: 2 }}
+                      >
+                        Adicionais
+                      </Button>
+                      <Button
+                        variant="contained"
+                        startIcon={<AddIcon />}
+                        onClick={() => openMenuDialog()}
+                        sx={{ borderRadius: 2 }}
+                      >
+                        Novo Item
+                      </Button>
+                    </Box>
                   </Box>
                   {loading ? (
                     <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
@@ -585,7 +875,17 @@ export default function AdminPage() {
                             <Card sx={{ mb: 2, boxShadow: 1, borderRadius: 3, height: '100%', display: 'flex', flexDirection: 'column', transition: 'box-shadow 0.2s' }}>
                               {m.image_url && <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.15 }}><Box sx={{ width:'100%', height: 120, background: `url(${m.image_url}) center/cover`, borderRadius: 2 }} /></motion.div>}
                               <CardContent sx={{ flexGrow: 1 }}>
-                                <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>{m.name}</Typography>
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+                                  <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>{m.name}</Typography>
+                                  {m.categories && (
+                                    <Chip 
+                                      label={m.categories.name} 
+                                      size="small" 
+                                      color="primary" 
+                                      variant="outlined"
+                                    />
+                                  )}
+                                </Box>
                                 <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>{m.description}</Typography>
                                 <Typography variant="subtitle2" color="primary">R$ {Number(m.price).toFixed(2)}</Typography>
                               </CardContent>
@@ -899,13 +1199,187 @@ export default function AdminPage() {
           </Grid>
         )}
         {/* Dialog CRUD Cardápio */}
-        <Dialog open={menuDialog} onClose={closeMenuDialog} maxWidth="xs" fullWidth>
+        <Dialog open={menuDialog} onClose={closeMenuDialog} maxWidth="md" fullWidth>
           <DialogTitle>{editingMenu?'Editar':'Novo'} item do cardápio</DialogTitle>
           <DialogContent>
-            <TextField label="Nome" fullWidth margin="dense" value={menuForm.name} onChange={e=>setMenuForm(f=>({...f,name:e.target.value}))} />
-            <TextField label="Descrição" fullWidth margin="dense" value={menuForm.description} onChange={e=>setMenuForm(f=>({...f,description:e.target.value}))} />
-            <TextField label="Preço" fullWidth margin="dense" value={menuForm.price} onChange={e=>setMenuForm(f=>({...f,price:e.target.value}))} type="number" />
-            <TextField label="URL da imagem" fullWidth margin="dense" value={menuForm.image_url} onChange={e=>setMenuForm(f=>({...f,image_url:e.target.value}))} />
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+              {/* Informações básicas */}
+              <Box>
+                <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>Informações Básicas</Typography>
+                <Grid container spacing={2}>
+                  <Grid size={{ xs: 12, md: 6 }}>
+                    <TextField 
+                      label="Nome" 
+                      fullWidth 
+                      value={menuForm.name} 
+                      onChange={e=>setMenuForm(f=>({...f,name:e.target.value}))} 
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, md: 6 }}>
+                    <FormControl fullWidth>
+                      <InputLabel>Categoria</InputLabel>
+                      <Select
+                        value={menuForm.category_id}
+                        label="Categoria"
+                        onChange={e=>setMenuForm(f=>({...f,category_id:e.target.value}))}
+                      >
+                        <MenuItem value="">Sem categoria</MenuItem>
+                        {categories.map(cat => (
+                          <MenuItem key={cat.id} value={cat.id}>{cat.name}</MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid size={{ xs: 12 }}>
+                    <TextField 
+                      label="Descrição" 
+                      fullWidth 
+                      multiline 
+                      rows={2}
+                      value={menuForm.description} 
+                      onChange={e=>setMenuForm(f=>({...f,description:e.target.value}))} 
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, md: 6 }}>
+                    <TextField 
+                      label="Preço Base" 
+                      fullWidth 
+                      value={menuForm.price} 
+                      onChange={e=>setMenuForm(f=>({...f,price:e.target.value}))} 
+                      type="number"
+                      InputProps={{
+                        startAdornment: <Typography sx={{ mr: 1 }}>R$</Typography>
+                      }}
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, md: 6 }}>
+                    <TextField 
+                      label="URL da imagem" 
+                      fullWidth 
+                      value={menuForm.image_url} 
+                      onChange={e=>setMenuForm(f=>({...f,image_url:e.target.value}))} 
+                    />
+                  </Grid>
+                </Grid>
+              </Box>
+
+              {/* Variações de tamanho */}
+              <Box>
+                <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>Variações de Tamanho</Typography>
+                {sizeVariants.length > 0 && (
+                  <Box sx={{ mb: 2 }}>
+                    {sizeVariants.map((variant, index) => (
+                      <Card key={index} sx={{ p: 2, mb: 1, bgcolor: 'grey.50' }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Box>
+                            <Typography variant="body2" sx={{ fontWeight: 500 }}>{variant.size_name}</Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {variant.price_modifier >= 0 ? '+' : ''}R$ {Number(variant.price_modifier).toFixed(2)}
+                              {variant.is_default && ' (Padrão)'}
+                            </Typography>
+                          </Box>
+                          <IconButton size="small" onClick={() => removeSizeVariant(index)} color="error">
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Box>
+                      </Card>
+                    ))}
+                  </Box>
+                )}
+                
+                <Card sx={{ p: 2, bgcolor: 'primary.light', color: 'white' }}>
+                  <Typography variant="body2" sx={{ mb: 2, fontWeight: 500 }}>Adicionar Nova Variação</Typography>
+                  <Grid container spacing={2} alignItems="center">
+                    <Grid size={{ xs: 12, sm: 4 }}>
+                      <TextField
+                        size="small"
+                        label="Tamanho"
+                        fullWidth
+                        value={newSizeVariant.size_name}
+                        onChange={e => setNewSizeVariant(prev => ({...prev, size_name: e.target.value}))}
+                        placeholder="Ex: Pequeno, Médio, Grande"
+                        sx={{ bgcolor: 'white', borderRadius: 1 }}
+                      />
+                    </Grid>
+                    <Grid size={{ xs: 12, sm: 3 }}>
+                      <TextField
+                        size="small"
+                        label="Diferença no preço"
+                        fullWidth
+                        type="number"
+                        value={newSizeVariant.price_modifier}
+                        onChange={e => setNewSizeVariant(prev => ({...prev, price_modifier: e.target.value}))}
+                        placeholder="Ex: 0, 5.00, -2.00"
+                        sx={{ bgcolor: 'white', borderRadius: 1 }}
+                      />
+                    </Grid>
+                    <Grid size={{ xs: 12, sm: 3 }}>
+                      <FormControlLabel
+                        control={
+                          <Checkbox
+                            checked={newSizeVariant.is_default}
+                            onChange={e => setNewSizeVariant(prev => ({...prev, is_default: e.target.checked}))}
+                            sx={{ color: 'white' }}
+                          />
+                        }
+                        label="Padrão"
+                        sx={{ color: 'white' }}
+                      />
+                    </Grid>
+                    <Grid size={{ xs: 12, sm: 2 }}>
+                      <Button 
+                        variant="contained" 
+                        size="small" 
+                        onClick={addSizeVariant}
+                        sx={{ bgcolor: 'white', color: 'primary.main', '&:hover': { bgcolor: 'grey.100' } }}
+                      >
+                        <AddIcon fontSize="small" />
+                      </Button>
+                    </Grid>
+                  </Grid>
+                </Card>
+              </Box>
+
+              {/* Adicionais */}
+              <Box>
+                <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>Adicionais Disponíveis</Typography>
+                <Card sx={{ p: 2 }}>
+                  {addons.length === 0 ? (
+                    <Typography variant="body2" color="text.secondary">Nenhum adicional cadastrado</Typography>
+                  ) : (
+                    <Grid container spacing={1}>
+                      {addons.map(addon => (
+                        <Grid size={{ xs: 12, sm: 6, md: 4 }} key={addon.id}>
+                          <Card 
+                            sx={{ 
+                              p: 1, 
+                              cursor: 'pointer',
+                              bgcolor: selectedAddons.includes(addon.id) ? 'primary.light' : 'grey.50',
+                              color: selectedAddons.includes(addon.id) ? 'white' : 'text.primary',
+                              border: selectedAddons.includes(addon.id) ? '2px solid' : '1px solid',
+                              borderColor: selectedAddons.includes(addon.id) ? 'primary.main' : 'grey.300'
+                            }}
+                            onClick={() => toggleAddon(addon.id)}
+                          >
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <Box>
+                                <Typography variant="body2" sx={{ fontWeight: 500 }}>{addon.name}</Typography>
+                                <Typography variant="caption">R$ {Number(addon.price).toFixed(2)}</Typography>
+                              </Box>
+                              <Checkbox 
+                                checked={selectedAddons.includes(addon.id)}
+                                size="small"
+                                sx={{ color: selectedAddons.includes(addon.id) ? 'white' : 'primary.main' }}
+                              />
+                            </Box>
+                          </Card>
+                        </Grid>
+                      ))}
+                    </Grid>
+                  )}
+                </Card>
+              </Box>
+            </Box>
           </DialogContent>
           <DialogActions>
             <Button onClick={closeMenuDialog}>Cancelar</Button>
@@ -1316,6 +1790,7 @@ export default function AdminPage() {
       </div>
         {/* Snackbar feedback */}
         <Snackbar
+         
           open={snackbar.open}
           autoHideDuration={2500}
           onClose={()=>setSnackbar(s=>({...s,open:false}))}
@@ -1323,6 +1798,140 @@ export default function AdminPage() {
         >
           <Alert severity={snackbar.severity} variant="filled" sx={{ fontWeight: 500 }}>{snackbar.message}</Alert>
         </Snackbar>
+
+        {/* Dialog para gerenciar categorias */}
+        <Dialog open={categoryDialog} onClose={closeCategoryDialog} maxWidth="sm" fullWidth>
+          <DialogTitle>{editingCategory ? 'Editar' : 'Nova'} Categoria</DialogTitle>
+          <DialogContent>
+            <TextField 
+              label="Nome" 
+              fullWidth 
+              margin="dense" 
+              value={categoryForm.name} 
+              onChange={e=>setCategoryForm(f=>({...f,name:e.target.value}))} 
+            />
+            <TextField 
+              label="Descrição" 
+              fullWidth 
+              margin="dense" 
+              multiline
+              rows={2}
+              value={categoryForm.description} 
+              onChange={e=>setCategoryForm(f=>({...f,description:e.target.value}))} 
+            />
+            <TextField 
+              label="Ordem de exibição" 
+              fullWidth 
+              margin="dense" 
+              type="number"
+              value={categoryForm.display_order} 
+              onChange={e=>setCategoryForm(f=>({...f,display_order:e.target.value}))} 
+            />
+            
+            {/* Lista de categorias existentes */}
+            <Typography variant="h6" sx={{ mt: 3, mb: 2 }}>Categorias Existentes</Typography>
+            <Grid container spacing={2}>
+              {categories.map(category => (
+                <Grid size={{ xs: 12, sm: 6 }} key={category.id}>
+                  <Card sx={{ p: 2 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Box>
+                        <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
+                          {category.name}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {category.description}
+                        </Typography>
+                        <Typography variant="caption" sx={{ display: 'block' }}>
+                          Ordem: {category.display_order}
+                        </Typography>
+                      </Box>
+                      <Box>
+                        <IconButton onClick={() => openCategoryDialog(category)} size="small" color="primary">
+                          <EditIcon fontSize="small" />
+                        </IconButton>
+                        <IconButton onClick={() => removeCategory(category.id)} size="small" color="error">
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Box>
+                    </Box>
+                  </Card>
+                </Grid>
+              ))}
+            </Grid>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={closeCategoryDialog}>Fechar</Button>
+            <Button onClick={saveCategory} variant="contained">Salvar</Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Dialog para gerenciar adicionais */}
+        <Dialog open={addonDialog} onClose={closeAddonDialog} maxWidth="sm" fullWidth>
+          <DialogTitle>{editingAddon ? 'Editar' : 'Novo'} Adicional</DialogTitle>
+          <DialogContent>
+            <TextField 
+              label="Nome" 
+              fullWidth 
+              margin="dense" 
+              value={addonForm.name} 
+              onChange={e=>setAddonForm(f=>({...f,name:e.target.value}))} 
+            />
+            <TextField 
+              label="Descrição" 
+              fullWidth 
+              margin="dense" 
+              multiline
+              rows={2}
+              value={addonForm.description} 
+              onChange={e=>setAddonForm(f=>({...f,description:e.target.value}))} 
+            />
+            <TextField 
+              label="Preço (R$)" 
+              fullWidth 
+              margin="dense" 
+              type="number"
+              value={addonForm.price} 
+              onChange={e=>setAddonForm(f=>({...f,price:e.target.value}))} 
+            />
+            
+            {/* Lista de adicionais existentes */}
+            <Typography variant="h6" sx={{ mt: 3, mb: 2 }}>Adicionais Existentes</Typography>
+            <Grid container spacing={2}>
+              {addons.map(addon => (
+                <Grid size={{ xs: 12, sm: 6 }} key={addon.id}>
+                  <Card sx={{ p: 2 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Box>
+                        <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
+                          {addon.name}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                          {addon.description}
+                        </Typography>
+                        <Typography variant="subtitle2" color="primary">
+                          R$ {Number(addon.price).toFixed(2)}
+                        </Typography>
+                      </Box>
+                      <Box>
+                        <IconButton onClick={() => openAddonDialog(addon)} size="small" color="primary">
+                          <EditIcon fontSize="small" />
+                        </IconButton>
+                        <IconButton onClick={() => removeAddon(addon.id)} size="small" color="error">
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Box>
+                    </Box>
+                  </Card>
+                </Grid>
+              ))}
+            </Grid>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={closeAddonDialog}>Fechar</Button>
+            <Button onClick={saveAddon} variant="contained">Salvar</Button>
+          </DialogActions>
+        </Dialog>
       </Box>
     </Box>
   );

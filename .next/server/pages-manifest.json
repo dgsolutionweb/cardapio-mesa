@@ -1,9 +1,7 @@
 {
-  "/admin": "pages/admin.html",
-  "/kitchen": "pages/kitchen.html",
-  "/menu": "pages/menu.html",
   "/_app": "pages/_app.js",
   "/_error": "pages/_error.js",
   "/_document": "pages/_document.js",
-  "/404": "pages/404.html"
+  "/menu": "pages/menu.js",
+  "/admin": "pages/admin.js"
 }
