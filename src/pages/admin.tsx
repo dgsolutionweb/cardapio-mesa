@@ -1,0 +1,1321 @@
+import { useEffect, useState, useRef } from 'react';
+import { createClient } from '@supabase/supabase-js';
+import {
+  AppBar, Toolbar, Typography, Drawer, List, ListItem, ListItemIcon, ListItemText, Divider, IconButton, Button, Box, Grid, Card, CardContent, CardActions, TextField, Dialog, DialogTitle, DialogContent, DialogActions, Snackbar, Alert, useTheme, useMediaQuery, CircularProgress, Avatar, Paper
+} from '@mui/material';
+import MenuIcon from '@mui/icons-material/Menu';
+import TableBarIcon from '@mui/icons-material/TableBar';
+import RestaurantMenuIcon from '@mui/icons-material/RestaurantMenu';
+import DeleteIcon from '@mui/icons-material/Delete';
+import EditIcon from '@mui/icons-material/Edit';
+import AddIcon from '@mui/icons-material/Add';
+import QrCodeIcon from '@mui/icons-material/QrCode';
+import EmojiFoodBeverageIcon from '@mui/icons-material/EmojiFoodBeverage';
+import StarIcon from '@mui/icons-material/Star';
+import ReceiptIcon from '@mui/icons-material/Receipt';
+import SettingsIcon from '@mui/icons-material/Settings';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import EventSeatIcon from '@mui/icons-material/EventSeat';
+import EventBusyIcon from '@mui/icons-material/EventBusy';
+import PaymentIcon from '@mui/icons-material/Payment';
+import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import DoneAllIcon from '@mui/icons-material/DoneAll';
+import PeopleIcon from '@mui/icons-material/People';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import PrintIcon from '@mui/icons-material/Print';
+import dynamic from 'next/dynamic';
+import { motion } from 'framer-motion';
+import { useReactToPrint } from 'react-to-print';
+import '@fontsource/inter/400.css';
+import '@fontsource/roboto-flex/400.css';
+
+// Importar QRCodeSVG dinamicamente para evitar erro de window is not defined
+const QRCodeSVG = dynamic(() => import('qrcode.react').then(mod => mod.QRCodeSVG), {
+  ssr: false, // Desativar renderização do lado do servidor
+});
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+
+const drawerWidth = 260;
+
+export default function AdminPage() {
+  // Mesas
+  const [tables, setTables] = useState<{id:number,number:number,status:string}[]>([]);
+  const [newTable, setNewTable] = useState('');
+  // Cardápio
+  const [menu, setMenu] = useState<any[]>([]);
+  const [menuDialog, setMenuDialog] = useState(false);
+  const [editingMenu, setEditingMenu] = useState<any|null>(null);
+  const [menuForm, setMenuForm] = useState({ name:'', description:'', price:'', image_url:'' });
+  // Drawer
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  // QR Code
+  const [qrTable, setQrTable] = useState<number|null>(null);
+  // Pedidos
+  const [orders, setOrders] = useState<any[]>([]);
+  const [orderItems, setOrderItems] = useState<any[]>([]);
+  const [selectedOrder, setSelectedOrder] = useState<any|null>(null);
+  const [tableStatusDialog, setTableStatusDialog] = useState(false);
+  const [selectedTable, setSelectedTable] = useState<any|null>(null);
+  const [reservationName, setReservationName] = useState('');
+  const [paymentDialog, setPaymentDialog] = useState(false);
+  // Feedback visual
+  const [snackbar, setSnackbar] = useState<{open:boolean,message:string,severity:'success'|'error'|'info'}>({open:false,message:'',severity:'success'});
+  const [loading, setLoading] = useState(false);
+  const [loadingOrders, setLoadingOrders] = useState(false);
+  const [printingOrder, setPrintingOrder] = useState(false);
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+  const printComponentRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    fetchTables();
+    fetchMenu();
+    fetchOrders();
+  }, []);
+  async function fetchTables() {
+    setLoading(true);
+    const { data } = await supabase.from('tables').select('*').order('number');
+    if (data) setTables(data);
+    setLoading(false);
+  }
+  
+  async function fetchOrders() {
+    setLoadingOrders(true);
+    try {
+      // Buscar todos os pedidos
+      const { data: ordersData, error: ordersError } = await supabase
+        .from('orders')
+        .select('*')
+        .order('created_at', { ascending: false });
+        
+      if (ordersError) {
+        console.error('Erro ao buscar pedidos:', ordersError);
+        setSnackbar({open: true, message: `Erro ao buscar pedidos: ${ordersError.message}`, severity: 'error'});
+        return;
+      }
+      
+      // Buscar todos os itens de pedidos
+      const { data: itemsData, error: itemsError } = await supabase
+        .from('order_items')
+        .select('*, menu_items(*)');
+        
+      if (itemsError) {
+        console.error('Erro ao buscar itens de pedidos:', itemsError);
+        setSnackbar({open: true, message: `Erro ao buscar itens de pedidos: ${itemsError.message}`, severity: 'error'});
+        return;
+      }
+      
+      // Verificar se há pedidos ativos
+      const activeOrders = ordersData?.filter(order => order.status !== 'completed') || [];
+      console.log(`Total de pedidos: ${ordersData?.length || 0}, Pedidos ativos: ${activeOrders.length}`);
+      if (activeOrders.length === 0) {
+        console.log('Nenhum pedido ativo encontrado');
+      } else {
+        console.log('Pedidos ativos:', activeOrders);
+      }
+      
+      setOrders(ordersData || []);
+      setOrderItems(itemsData || []);
+    } catch (error) {
+      console.error('Erro ao buscar pedidos:', error);
+      setSnackbar({open: true, message: `Erro inesperado: ${error}`, severity: 'error'});
+    } finally {
+      setLoadingOrders(false);
+    }
+  }
+  async function fetchMenu() {
+    setLoading(true);
+    const { data } = await supabase.from('menu_items').select('*').order('id');
+    if (data) setMenu(data);
+    setLoading(false);
+  }
+  async function addTable() {
+    if (!newTable) return;
+    await supabase.from('tables').insert({ 
+      number: Number(newTable),
+      status: 'available'
+    });
+    setNewTable('');
+    fetchTables();
+    setSnackbar({open:true,message:'Mesa adicionada!',severity:'success'});
+  }
+  async function removeTable(id:number) {
+    await supabase.from('tables').delete().eq('id', id);
+    fetchTables();
+    setSnackbar({open:true,message:'Mesa removida!',severity:'info'});
+  }
+  function openQr(table:number) { setQrTable(table); }
+  function closeQr() { setQrTable(null); }
+  
+  // Gerenciamento de status das mesas
+  function openTableStatusDialog(table: any) {
+    setSelectedTable(table);
+    setReservationName('');
+    setTableStatusDialog(true);
+  }
+  
+  function closeTableStatusDialog() {
+    setTableStatusDialog(false);
+    setSelectedTable(null);
+  }
+  
+  async function updateTableStatus(status: string) {
+    if (!selectedTable) return;
+    
+    try {
+      const { error } = await supabase
+        .from('tables')
+        .update({ 
+          status: status,
+          // Se for uma reserva, poderia adicionar o nome da pessoa que reservou
+          // reservation_name: status === 'reserved' ? reservationName : null
+        })
+        .eq('id', selectedTable.id);
+      
+      if (error) {
+        console.error('Erro ao atualizar status da mesa:', error);
+        setSnackbar({open: true, message: `Erro ao atualizar mesa: ${error.message}`, severity: 'error'});
+        return;
+      }
+      
+      setSnackbar({
+        open: true, 
+        message: `Mesa ${selectedTable.number} ${status === 'available' ? 'disponível' : status === 'occupied' ? 'marcada como ocupada' : 'reservada'}!`, 
+        severity: 'success'
+      });
+      
+      closeTableStatusDialog();
+      fetchTables();
+    } catch (error) {
+      console.error('Erro ao atualizar status da mesa:', error);
+      setSnackbar({open: true, message: `Erro inesperado: ${error}`, severity: 'error'});
+    }
+  }
+  
+  // Gerenciamento de pedidos
+  function viewOrderDetails(order: any) {
+    setSelectedOrder(order);
+  }
+  
+  function closeOrderDetails() {
+    setSelectedOrder(null);
+  }
+  
+  // Função para abrir o diálogo de pagamento
+  // Agora aceita múltiplos pedidos de uma mesa
+  function openPaymentDialog(order: any, allTableOrders?: any[]) {
+    // Se allTableOrders for fornecido, usamos todos os pedidos da mesa
+    // Caso contrário, buscamos todos os pedidos ativos da mesma mesa
+    if (allTableOrders) {
+      // Usar os pedidos fornecidos
+      setSelectedOrder({
+        ...order,
+        allTableOrders: allTableOrders
+      });
+    } else {
+      // Buscar todos os pedidos ativos da mesma mesa
+      const tableOrders = orders.filter(o => 
+        o.table_id === order.table_id && 
+        o.status !== 'completed'
+      );
+      
+      setSelectedOrder({
+        ...order,
+        allTableOrders: tableOrders
+      });
+    }
+    
+    setPaymentDialog(true);
+  }
+  
+  function closePaymentDialog() {
+    setPaymentDialog(false);
+  }
+  
+  // Função para imprimir a comanda
+  const handlePrint = useReactToPrint({
+    documentTitle: 'Comanda',
+    contentRef: printComponentRef,
+    onAfterPrint: () => {
+      console.log('Impressão concluída com sucesso');
+      setPrintingOrder(false);
+      // Após a impressão, completar o pedido
+      finishOrder();
+      setSnackbar({open: true, message: 'Comanda impressa com sucesso!', severity: 'success'});
+    },
+    onPrintError: (errorLocation, error) => {
+      console.error(`Erro ao imprimir (${errorLocation}):`, error);
+      setPrintingOrder(false);
+      setSnackbar({open: true, message: `Erro ao imprimir: ${error.message}`, severity: 'error'});
+    },
+    // Adiciona estilo personalizado para a página de impressão
+    pageStyle: `
+      @media print {
+        @page { size: 80mm auto; margin: 0mm; }
+        body { margin: 10mm 5mm; }
+      }
+    `
+  });
+
+  async function completeOrder() {
+    // Iniciar o processo de impressão
+    handlePrint();
+  }
+
+  async function finishOrder() {
+    if (!selectedOrder) return;
+    
+    try {
+      // Verificar se temos múltiplos pedidos para processar
+      const ordersToProcess = selectedOrder.allTableOrders || [selectedOrder];
+      console.log(`Finalizando ${ordersToProcess.length} pedido(s) da mesa ${selectedOrder.table_id}`);
+      
+      // Atualizar o status de todos os pedidos para 'completed'
+      for (const order of ordersToProcess) {
+        const { error: orderError } = await supabase
+          .from('orders')
+          .update({ status: 'completed' })
+          .eq('id', order.id);
+        
+        if (orderError) {
+          console.error(`Erro ao completar pedido ${order.id}:`, orderError);
+          setSnackbar({open: true, message: `Erro ao completar pedido: ${orderError.message}`, severity: 'error'});
+          return;
+        }
+      }
+      
+      // Verificar se há outros pedidos ativos para esta mesa
+      const { data: activeOrders, error: checkError } = await supabase
+        .from('orders')
+        .select('id')
+        .eq('table_id', selectedOrder.table_id)
+        .neq('status', 'completed');
+      
+      // Se não houver mais pedidos ativos, marcar a mesa como disponível
+      if (!activeOrders || activeOrders.length === 0) {
+        const { error: tableError } = await supabase
+          .from('tables')
+          .update({ status: 'available' })
+          .eq('id', selectedOrder.table_id);
+          
+        if (tableError) {
+          console.error('Erro ao atualizar status da mesa:', tableError);
+        }
+      }
+      
+      setSnackbar({open: true, message: 'Conta fechada com sucesso!', severity: 'success'});
+      closePaymentDialog();
+      closeOrderDetails();
+      fetchOrders();
+      fetchTables();
+    } catch (error) {
+      console.error('Erro ao finalizar pedidos:', error);
+      setSnackbar({open: true, message: `Erro inesperado: ${error}`, severity: 'error'});
+    }
+  }
+  
+  // Função para criar um pedido de teste para depuração
+  async function createTestOrder() {
+    try {
+      setLoading(true);
+      
+      // Verificar se há mesas disponíveis
+      if (tables.length === 0) {
+        setSnackbar({open: true, message: 'Nenhuma mesa disponível para criar pedido teste', severity: 'error'});
+        return;
+      }
+      
+      // Pegar a primeira mesa disponível ou qualquer mesa se não houver disponíveis
+      const availableTable = tables.find(t => t.status === 'available') || tables[0];
+      
+      // Criar o pedido de teste
+      const { data: orderData, error: orderError } = await supabase
+        .from('orders')
+        .insert({
+          table_id: availableTable.id,
+          status: 'pending', // Status inicial do pedido
+          total: 50.00, // Valor de teste
+          created_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+      
+      if (orderError) {
+        console.error('Erro ao criar pedido de teste:', orderError);
+        setSnackbar({open: true, message: `Erro ao criar pedido de teste: ${orderError.message}`, severity: 'error'});
+        return;
+      }
+      
+      if (!orderData) {
+        setSnackbar({open: true, message: 'Erro ao criar pedido: sem dados retornados', severity: 'error'});
+        return;
+      }
+      
+      // Adicionar um item de teste ao pedido
+      const { error: itemError } = await supabase
+        .from('order_items')
+        .insert({
+          order_id: orderData.id,
+          menu_item_id: 1, // Assumindo que existe pelo menos um item de menu com ID 1
+          quantity: 2
+        });
+      
+      if (itemError) {
+        console.error('Erro ao adicionar item ao pedido de teste:', itemError);
+        // Não interromper o fluxo, apenas registrar o erro
+      }
+      
+      // Atualizar o status da mesa para ocupada
+      const { error: tableError } = await supabase
+        .from('tables')
+        .update({ status: 'occupied' })
+        .eq('id', availableTable.id);
+      
+      if (tableError) {
+        console.error('Erro ao atualizar status da mesa:', tableError);
+        // Não interromper o fluxo, apenas registrar o erro
+      }
+      
+      setSnackbar({open: true, message: `Pedido de teste #${orderData.id} criado com sucesso!`, severity: 'success'});
+      
+      // Atualizar os dados
+      fetchOrders();
+      fetchTables();
+    } catch (error) {
+      console.error('Erro ao criar pedido de teste:', error);
+      setSnackbar({open: true, message: `Erro inesperado: ${error}`, severity: 'error'});
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // CRUD Cardápio
+  function openMenuDialog(item?:any) {
+    setEditingMenu(item||null);
+    setMenuForm(item ? { ...item, price: String(item.price) } : { name:'', description:'', price:'', image_url:'' });
+    setMenuDialog(true);
+  }
+  function closeMenuDialog() { setMenuDialog(false); setEditingMenu(null); }
+  async function saveMenu() {
+    if (editingMenu) {
+      await supabase.from('menu_items').update({ ...menuForm, price: Number(menuForm.price) }).eq('id', editingMenu.id);
+      setSnackbar({open:true,message:'Item atualizado!',severity:'success'});
+    } else {
+      await supabase.from('menu_items').insert({ ...menuForm, price: Number(menuForm.price) });
+      setSnackbar({open:true,message:'Item adicionado!',severity:'success'});
+    }
+    closeMenuDialog();
+    fetchMenu();
+  }
+  async function removeMenu(id:number) {
+    await supabase.from('menu_items').delete().eq('id', id);
+    fetchMenu();
+    setSnackbar({open:true,message:'Item removido!',severity:'info'});
+  }
+
+  // Navegação Drawer
+  const [currentPage, setCurrentPage] = useState<'tables' | 'menu' | 'orders' | 'settings'>('tables');
+  const drawer = (
+    <Box sx={{ width: drawerWidth, pt: 2, fontFamily: 'Inter, Roboto Flex, sans-serif' }}>
+      <motion.div initial={{ scale: 0.7, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring', stiffness: 180, damping: 14 }}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 1 }}>
+          <Avatar sx={{ bgcolor: 'primary.main', width: 64, height: 64, mb: 1, boxShadow: 3 }}>
+            <EmojiFoodBeverageIcon sx={{ fontSize: 38 }} />
+          </Avatar>
+          <Typography variant="h5" sx={{ fontWeight: 800, color: 'primary.main', letterSpacing: 1 }}>
+            Painel Admin
+          </Typography>
+        </Box>
+      </motion.div>
+      <Divider />
+      <List>
+        <ListItem button selected={currentPage === 'tables'} onClick={() => setCurrentPage('tables')} sx={{
+          borderRadius: 2,
+          mb: 1,
+          '&.Mui-selected': { bgcolor: 'primary.main', color: 'white',
+            '& .MuiListItemIcon-root': { color: 'white' }
+          }
+        }}>
+          <ListItemIcon><TableBarIcon /></ListItemIcon>
+          <ListItemText primary="Mesas" />
+        </ListItem>
+        <ListItem button selected={currentPage === 'menu'} onClick={() => setCurrentPage('menu')} sx={{
+          borderRadius: 2,
+          mb: 1,
+          '&.Mui-selected': { bgcolor: 'primary.main', color: 'white',
+            '& .MuiListItemIcon-root': { color: 'white' }
+          }
+        }}>
+          <ListItemIcon><RestaurantMenuIcon /></ListItemIcon>
+          <ListItemText primary="Cardápio" />
+        </ListItem>
+        <ListItem button selected={currentPage === 'orders'} onClick={() => setCurrentPage('orders')} sx={{
+          borderRadius: 2,
+          mb: 1,
+          '&.Mui-selected': { bgcolor: 'primary.main', color: 'white',
+            '& .MuiListItemIcon-root': { color: 'white' }
+          }
+        }}>
+          <ListItemIcon><ReceiptIcon /></ListItemIcon>
+          <ListItemText primary="Pedidos" />
+        </ListItem>
+        <ListItem button selected={currentPage === 'settings'} onClick={() => setCurrentPage('settings')} sx={{
+          borderRadius: 2,
+          '&.Mui-selected': { bgcolor: 'primary.main', color: 'white',
+            '& .MuiListItemIcon-root': { color: 'white' }
+          }
+        }}>
+          <ListItemIcon><SettingsIcon /></ListItemIcon>
+          <ListItemText primary="Configurações" />
+        </ListItem>
+      </List>
+      <Divider sx={{ my: 2 }} />
+      <Box sx={{ textAlign: 'center', color: 'text.secondary', fontSize: 13, mt: 2 }}>
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+          {new Date().getFullYear()} Cardápio Digital
+        </motion.div>
+      </Box>
+    </Box>
+  );
+
+  return (
+    <Box sx={{ display: 'flex', minHeight: '100vh', background: theme.palette.grey[50] }}>
+      {/* AppBar */}
+      <AppBar position="fixed" sx={{ zIndex: theme.zIndex.drawer + 1, background: 'linear-gradient(90deg, #1976d2 60%, #2196f3 100%)' }}>
+        <Toolbar>
+          {isMobile && (
+            <IconButton color="inherit" edge="start" onClick={()=>setDrawerOpen(true)} sx={{ mr: 2 }}><MenuIcon /></IconButton>
+          )}
+          <Typography variant="h6" noWrap component="div" sx={{ fontWeight: 700 }}>
+            Cardápio Digital - Administração
+          </Typography>
+        </Toolbar>
+      </AppBar>
+      {/* Drawer lateral */}
+      <Drawer
+        variant={isMobile ? 'temporary' : 'permanent'}
+        open={drawerOpen}
+        onClose={()=>setDrawerOpen(false)}
+        sx={{
+          width: drawerWidth,
+          flexShrink: 0,
+          [`& .MuiDrawer-paper`]: { width: drawerWidth, boxSizing: 'border-box', background: '#fff' },
+        }}
+      >
+        {drawer}
+      </Drawer>
+      {/* Conteúdo principal */}
+      <Box component="main" sx={{ flexGrow: 1, p: { xs: 2, md: 4 }, mt: 8, fontFamily: 'Inter, Roboto Flex, sans-serif' }}>
+        {/* SPA interna: Mesas/Cardápio */}
+        {currentPage === 'tables' && (
+          <Grid container spacing={4} justifyContent="center">
+            <Grid item xs={12} md={7} lg={5}>
+              <motion.div initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.1 }}>
+              <Card sx={{ p: 2, minHeight: 320, display: 'flex', flexDirection: 'column', boxShadow: 3, borderRadius: 4, background: 'rgba(255,255,255,0.97)', transition: 'box-shadow 0.2s', '&:hover': { boxShadow: 7 } }}>
+                <CardContent sx={{ flexGrow: 1 }}>
+                  <Typography variant="h6" sx={{ mb: 2, fontWeight: 700, color: 'primary.main', letterSpacing: 0.5 }}>
+                    Mesas
+                  </Typography>
+                  {loading ? <Box sx={{ textAlign:'center', mt:4 }}><CircularProgress /></Box> : (
+                    <List dense>
+                      {tables.map(t => (
+                        <motion.div key={t.id} whileHover={{ scale: 1.03 }}>
+                          <ListItem secondaryAction={
+                            <Box>
+                              <IconButton onClick={()=>openQr(t.number)} title="Ver QR Code" color="primary" sx={{ mx: 0.5 }}><QrCodeIcon /></IconButton>
+                              <IconButton onClick={()=>removeTable(t.id)} title="Remover" color="error" sx={{ mx: 0.5 }}><DeleteIcon /></IconButton>
+                            </Box>
+                          } sx={{ borderRadius: 2, mb: 0.5, transition: 'background 0.2s', '&:hover': { background: 'rgba(33,150,243,0.04)' } }}>
+                            <ListItemText primary={<b>Mesa {t.number}</b>} />
+                          </ListItem>
+                        </motion.div>
+                      ))}
+                    </List>
+                  )}
+                  <Box sx={{ display: 'flex', gap: 1, mt: 2 }}>
+                    <TextField label="Nova mesa" size="small" value={newTable} onChange={e=>setNewTable(e.target.value)} type="number" sx={{ flex: 1 }} />
+                    <Button onClick={addTable} variant="contained" startIcon={<AddIcon />} color="primary" sx={{ fontWeight: 700, borderRadius: 3, boxShadow: 1 }}>Adicionar</Button>
+                  </Box>
+                </CardContent>
+              </Card>
+              </motion.div>
+            </Grid>
+          </Grid>
+        )}
+        {currentPage === 'menu' && (
+          <Grid container spacing={3}>
+            <Grid item xs={12}>
+              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+              <Card sx={{ p: 3, borderRadius: 4, boxShadow: 2 }}>
+                <CardContent>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+                    <Typography variant="h5" sx={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <RestaurantMenuIcon /> Cardápio
+                    </Typography>
+                    <Button
+                      variant="contained"
+                      startIcon={<AddIcon />}
+                      onClick={() => openMenuDialog()}
+                      sx={{ borderRadius: 2 }}
+                    >
+                      Novo Item
+                    </Button>
+                  </Box>
+                  {loading ? (
+                    <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                      <CircularProgress />
+                    </Box>
+                  ) : (
+                    <Grid container spacing={2}>
+                      {menu.map(m => (
+                        <Grid item xs={12} sm={6} md={6} lg={4} key={m.id}>
+                          <motion.div whileHover={{ scale: 1.03, boxShadow: '0 8px 32px 0 rgba(33,150,243,0.18)' }}>
+                            <Card sx={{ mb: 2, boxShadow: 1, borderRadius: 3, height: '100%', display: 'flex', flexDirection: 'column', transition: 'box-shadow 0.2s' }}>
+                              {m.image_url && <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.15 }}><Box sx={{ width:'100%', height: 120, background: `url(${m.image_url}) center/cover`, borderRadius: 2 }} /></motion.div>}
+                              <CardContent sx={{ flexGrow: 1 }}>
+                                <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>{m.name}</Typography>
+                                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>{m.description}</Typography>
+                                <Typography variant="subtitle2" color="primary">R$ {Number(m.price).toFixed(2)}</Typography>
+                              </CardContent>
+                              <CardActions sx={{ justifyContent: 'flex-end', pb: 1 }}>
+                                <IconButton onClick={()=>openMenuDialog(m)} title="Editar" color="primary"><EditIcon /></IconButton>
+                                <IconButton onClick={()=>removeMenu(m.id)} title="Remover" color="error"><DeleteIcon /></IconButton>
+                              </CardActions>
+                            </Card>
+                          </motion.div>
+                        </Grid>
+                      ))}
+                    </Grid>
+                  )}
+                </CardContent>
+              </Card>
+              </motion.div>
+            </Grid>
+          </Grid>
+        )}
+        {currentPage === 'orders' && (
+          <Grid container spacing={3}>
+            <Grid item xs={12} md={6}>
+              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+                <Card sx={{ p: 2, minHeight: 320, display: 'flex', flexDirection: 'column', boxShadow: 3, borderRadius: 4, background: 'rgba(255,255,255,0.97)' }}>
+                  <CardContent sx={{ flexGrow: 1 }}>
+                    <Typography variant="h6" sx={{ mb: 2, fontWeight: 700, color: 'primary.main', letterSpacing: 0.5 }}>
+                      Status das Mesas
+                    </Typography>
+                    {loading ? <Box sx={{ textAlign:'center', mt:4 }}><CircularProgress /></Box> : (
+                      <Grid container spacing={2}>
+                        {tables.map(table => {
+                          // Determinar a cor de fundo com base no status
+                          let bgColor = 'success.light'; // Disponível
+                          let statusText = 'Disponível';
+                          let statusIcon = <CheckCircleIcon />;
+                          
+                          if (table.status === 'occupied') {
+                            bgColor = 'error.light';
+                            statusText = 'Ocupada';
+                            statusIcon = <EventBusyIcon />;
+                          } else if (table.status === 'reserved') {
+                            bgColor = 'warning.light';
+                            statusText = 'Reservada';
+                            statusIcon = <EventSeatIcon />;
+                          }
+                          
+                          return (
+                            <Grid item xs={6} sm={4} key={table.id}>
+                              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                                <Card 
+                                  sx={{ 
+                                    p: 1.5, 
+                                    bgcolor: bgColor,
+                                    color: 'white',
+                                    cursor: 'pointer',
+                                    textAlign: 'center',
+                                    boxShadow: 2,
+                                    borderRadius: 2,
+                                    transition: 'transform 0.2s'
+                                  }}
+                                  onClick={() => openTableStatusDialog(table)}
+                                >
+                                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                                    <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 0.5 }}>
+                                      Mesa {table.number}
+                                    </Typography>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                      {statusIcon}
+                                      <Typography variant="body2">
+                                        {statusText}
+                                      </Typography>
+                                    </Box>
+                                  </Box>
+                                </Card>
+                              </motion.div>
+                            </Grid>
+                          );
+                        })}
+                      </Grid>
+                    )}
+                  </CardContent>
+                </Card>
+              </motion.div>
+            </Grid>
+            
+            <Grid item xs={12} md={6}>
+              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.2 }}>
+                <Card sx={{ p: 2, minHeight: 320, display: 'flex', flexDirection: 'column', boxShadow: 3, borderRadius: 4, background: 'rgba(255,255,255,0.97)' }}>
+                  <CardContent sx={{ flexGrow: 1 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                      <Typography variant="h6" sx={{ fontWeight: 700, color: 'primary.main', letterSpacing: 0.5 }}>
+                        Pedidos Ativos
+                      </Typography>
+                      <Button 
+                        size="small" 
+                        variant="outlined" 
+                        onClick={createTestOrder}
+                        disabled={loading}
+                      >
+                        Criar Pedido Teste
+                      </Button>
+                    </Box>
+                    {loadingOrders ? <Box sx={{ textAlign:'center', mt:4 }}><CircularProgress /></Box> : (
+                      <List sx={{ width: '100%' }}>
+                        {orders.filter(order => order.status !== 'completed').length === 0 ? (
+                          <Box sx={{ textAlign: 'center', py: 2 }}>
+                            <Typography>Nenhum pedido ativo no momento</Typography>
+                          </Box>
+                        ) : (
+                          // Agrupar pedidos por mesa
+                          Object.entries(
+                            orders
+                              .filter(order => order.status !== 'completed')
+                              .reduce((grouped, order) => {
+                                const tableId = order.table_id;
+                                if (!grouped[tableId]) {
+                                  grouped[tableId] = [];
+                                }
+                                grouped[tableId].push(order);
+                                return grouped;
+                              }, {})
+                          ).map(([tableId, tableOrders]) => {
+                            // Converter para array tipado
+                            const ordersArray = tableOrders as any[];
+                            const table = tables.find(t => t.id === Number(tableId));
+                            
+                            // Calcular o total da mesa
+                            const totalValue = ordersArray.reduce(
+                              (acc, order) => acc + Number(order.total || 0), 
+                              0
+                            );
+                            
+                            // Verificar status dos pedidos da mesa
+                            const hasReady = ordersArray.some(order => order.status === 'ready');
+                            const hasPreparing = ordersArray.some(order => order.status === 'preparing');
+                            const hasPending = ordersArray.some(order => order.status === 'pending');
+                            
+                            // Determinar o status geral da mesa
+                            let statusText = 'Pendente';
+                            let statusColor = 'warning.main';
+                            let statusIcon = <AccessTimeIcon fontSize="small" />;
+                            
+                            if (hasReady && !hasPreparing && !hasPending) {
+                              statusText = 'Pronto para servir';
+                              statusColor = 'success.main';
+                              statusIcon = <DoneAllIcon fontSize="small" />;
+                            } else if (hasPreparing) {
+                              statusText = 'Em preparo';
+                              statusColor = 'info.main';
+                              statusIcon = <EmojiFoodBeverageIcon fontSize="small" />;
+                            }
+                            
+                            return (
+                              <ListItem 
+                                key={tableId} 
+                                sx={{ 
+                                  p: 0, 
+                                  mb: 2, 
+                                  display: 'block' 
+                                }}
+                              >
+                                <motion.div whileHover={{ scale: 1.01 }}>
+                                  <Card sx={{ 
+                                    borderRadius: 2, 
+                                    boxShadow: 1, 
+                                    bgcolor: 'grey.50',
+                                    overflow: 'visible'
+                                  }}>
+                                    <CardContent>
+                                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                                        <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>
+                                          Mesa {table?.number || tableId}
+                                        </Typography>
+                                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                                          <Box 
+                                            sx={{ 
+                                              display: 'flex', 
+                                              alignItems: 'center', 
+                                              bgcolor: `${statusColor}15`, 
+                                              color: statusColor,
+                                              px: 1,
+                                              py: 0.5,
+                                              borderRadius: 1,
+                                              mr: 1
+                                            }}
+                                          >
+                                            {statusIcon}
+                                            <Typography variant="caption" sx={{ ml: 0.5, fontWeight: 'medium' }}>
+                                              {statusText}
+                                            </Typography>
+                                          </Box>
+                                        </Box>
+                                      </Box>
+                                      
+                                      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                                        {ordersArray.length} {ordersArray.length === 1 ? 'pedido' : 'pedidos'} • R$ {totalValue.toFixed(2)}
+                                      </Typography>
+                                      
+                                      <Box sx={{ mt: 2 }}>
+                                        <Button 
+                                          size="small" 
+                                          variant="outlined" 
+                                          onClick={() => viewOrderDetails(ordersArray[0])}
+                                          sx={{ mr: 1 }}
+                                        >
+                                          Ver Detalhes
+                                        </Button>
+                                        <Button 
+                                          size="small" 
+                                          variant="contained" 
+                                          color="primary"
+                                          onClick={() => openPaymentDialog(ordersArray[0], ordersArray)}
+                                          startIcon={<PaymentIcon />}
+                                        >
+                                          Pagamento
+                                        </Button>
+                                      </Box>
+                                    </CardContent>
+                                  </Card>
+                                </motion.div>
+                              </ListItem>
+                            );
+                          })
+                        )}
+                      </List>
+                    )}
+                  </CardContent>
+                </Card>
+              </motion.div>
+            </Grid>
+            
+            <Grid item xs={12}>
+              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.4 }}>
+                <Card sx={{ p: 2, display: 'flex', flexDirection: 'column', boxShadow: 3, borderRadius: 4, background: 'rgba(255,255,255,0.97)' }}>
+                  <CardContent>
+                    <Typography variant="h6" sx={{ mb: 2, fontWeight: 700, color: 'primary.main', letterSpacing: 0.5 }}>
+                      Histórico de Pedidos
+                    </Typography>
+                    {loadingOrders ? <Box sx={{ textAlign:'center', mt:4 }}><CircularProgress /></Box> : (
+                      <List sx={{ width: '100%' }}>
+                        {orders
+                          .filter(order => order.status === 'completed')
+                          .slice(0, 5) // Mostrar apenas os 5 mais recentes
+                          .map(order => {
+                            // Encontrar a mesa correspondente
+                            const table = tables.find(t => t.id === order.table_id);
+                            // Encontrar os itens deste pedido
+                            const items = orderItems.filter(item => item.order_id === order.id);
+                            // Calcular o total
+                            const total = order.total || items.reduce((sum, item) => {
+                              return sum + (item.quantity * (item.menu_items?.price || 0));
+                            }, 0);
+                            
+                            return (
+                              <motion.div key={order.id} whileHover={{ scale: 1.01 }}>
+                                <Card sx={{ mb: 2, borderRadius: 2, boxShadow: 1, bgcolor: 'grey.50' }}>
+                                  <CardContent>
+                                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                                      <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>
+                                        Mesa {table?.number || order.table_id}
+                                      </Typography>
+                                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                        <DoneAllIcon fontSize="small" color="success" />
+                                        <Typography variant="body2" color="text.secondary">
+                                          {new Date(order.created_at).toLocaleDateString('pt-BR')}
+                                        </Typography>
+                                      </Box>
+                                    </Box>
+                                    
+                                    <Typography variant="body2" color="text.secondary">
+                                      {items.length} {items.length === 1 ? 'item' : 'itens'} • R$ {total.toFixed(2)}
+                                    </Typography>
+                                  </CardContent>
+                                </Card>
+                              </motion.div>
+                            );
+                          })}
+                          
+                        {orders.filter(order => order.status === 'completed').length === 0 && (
+                          <Box sx={{ textAlign: 'center', py: 4, color: 'text.secondary' }}>
+                            <ReceiptIcon sx={{ fontSize: 40, opacity: 0.3, mb: 1 }} />
+                            <Typography>Nenhum pedido finalizado</Typography>
+                          </Box>
+                        )}
+                      </List>
+                    )}
+                  </CardContent>
+                </Card>
+              </motion.div>
+            </Grid>
+          </Grid>
+        )}
+        {currentPage === 'settings' && (
+          <Grid container spacing={3}>
+            <Grid item xs={12}>
+              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+              <Card sx={{ p: 3, borderRadius: 4, boxShadow: 2 }}>
+                <CardContent>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+                    <Typography variant="h5" sx={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <SettingsIcon /> Configurações
+                    </Typography>
+                  </Box>
+                  <Typography variant="body1" color="text.secondary" align="center">
+                    Em breve você poderá personalizar todas as configurações do sistema aqui!
+                  </Typography>
+                </CardContent>
+              </Card>
+              </motion.div>
+            </Grid>
+          </Grid>
+        )}
+        {/* Dialog CRUD Cardápio */}
+        <Dialog open={menuDialog} onClose={closeMenuDialog} maxWidth="xs" fullWidth>
+          <DialogTitle>{editingMenu?'Editar':'Novo'} item do cardápio</DialogTitle>
+          <DialogContent>
+            <TextField label="Nome" fullWidth margin="dense" value={menuForm.name} onChange={e=>setMenuForm(f=>({...f,name:e.target.value}))} />
+            <TextField label="Descrição" fullWidth margin="dense" value={menuForm.description} onChange={e=>setMenuForm(f=>({...f,description:e.target.value}))} />
+            <TextField label="Preço" fullWidth margin="dense" value={menuForm.price} onChange={e=>setMenuForm(f=>({...f,price:e.target.value}))} type="number" />
+            <TextField label="URL da imagem" fullWidth margin="dense" value={menuForm.image_url} onChange={e=>setMenuForm(f=>({...f,image_url:e.target.value}))} />
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={closeMenuDialog}>Cancelar</Button>
+            <Button onClick={saveMenu} variant="contained">Salvar</Button>
+          </DialogActions>
+        </Dialog>
+        {/* QR Code Dialog */}
+      <Dialog open={qrTable !== null} onClose={closeQr} maxWidth="xs" fullWidth>
+        <DialogTitle>QR Code - Mesa {qrTable}</DialogTitle>
+        <DialogContent sx={{ textAlign: 'center', py: 3 }}>
+          {typeof window !== 'undefined' && (
+            <QRCodeSVG value={`${window.location.origin}/menu?table=${qrTable}`} size={200} />
+          )}
+          <Typography variant="body2" sx={{ mt: 2 }}>
+            Escaneie este QR code para acessar o cardápio digital da Mesa {qrTable}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeQr}>Fechar</Button>
+        </DialogActions>
+      </Dialog>
+      
+      {/* Dialog para atualizar status da mesa */}
+      <Dialog open={tableStatusDialog} onClose={closeTableStatusDialog} maxWidth="xs" fullWidth>
+        <DialogTitle>Gerenciar Mesa {selectedTable?.number}</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            Selecione o status atual desta mesa:
+          </Typography>
+          
+          <Grid container spacing={2}>
+            <Grid item xs={4}>
+              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                <Card 
+                  sx={{ 
+                    p: 1.5, 
+                    bgcolor: 'success.light',
+                    color: 'white',
+                    cursor: 'pointer',
+                    textAlign: 'center',
+                    boxShadow: 2,
+                    borderRadius: 2
+                  }}
+                  onClick={() => updateTableStatus('available')}
+                >
+                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                    <CheckCircleIcon sx={{ fontSize: 36, mb: 1 }} />
+                    <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                      Disponível
+                    </Typography>
+                  </Box>
+                </Card>
+              </motion.div>
+            </Grid>
+            
+            <Grid item xs={4}>
+              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                <Card 
+                  sx={{ 
+                    p: 1.5, 
+                    bgcolor: 'error.light',
+                    color: 'white',
+                    cursor: 'pointer',
+                    textAlign: 'center',
+                    boxShadow: 2,
+                    borderRadius: 2
+                  }}
+                  onClick={() => updateTableStatus('occupied')}
+                >
+                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                    <EventBusyIcon sx={{ fontSize: 36, mb: 1 }} />
+                    <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                      Ocupada
+                    </Typography>
+                  </Box>
+                </Card>
+              </motion.div>
+            </Grid>
+            
+            <Grid item xs={4}>
+              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                <Card 
+                  sx={{ 
+                    p: 1.5, 
+                    bgcolor: 'warning.light',
+                    color: 'white',
+                    cursor: 'pointer',
+                    textAlign: 'center',
+                    boxShadow: 2,
+                    borderRadius: 2
+                  }}
+                  onClick={() => updateTableStatus('reserved')}
+                >
+                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                    <EventSeatIcon sx={{ fontSize: 36, mb: 1 }} />
+                    <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                      Reservada
+                    </Typography>
+                  </Box>
+                </Card>
+              </motion.div>
+            </Grid>
+          </Grid>
+          
+          {selectedTable?.status === 'reserved' && (
+            <TextField
+              margin="dense"
+              label="Nome da reserva"
+              fullWidth
+              variant="outlined"
+              value={reservationName}
+              onChange={(e) => setReservationName(e.target.value)}
+              sx={{ mt: 3 }}
+            />
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeTableStatusDialog}>Cancelar</Button>
+        </DialogActions>
+      </Dialog>
+      
+      {/* Dialog para detalhes do pedido */}
+      <Dialog open={selectedOrder !== null && !paymentDialog} onClose={closeOrderDetails} maxWidth="sm" fullWidth>
+        {selectedOrder && (
+          <>
+            <DialogTitle>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Typography variant="h6">Detalhes do Pedido</Typography>
+                <IconButton onClick={closeOrderDetails} size="small">
+                  <ArrowBackIcon />
+                </IconButton>
+              </Box>
+            </DialogTitle>
+            <DialogContent>
+              <Box sx={{ mb: 3, p: 2, bgcolor: 'primary.light', color: 'white', borderRadius: 2 }}>
+                <Typography variant="subtitle1" sx={{ fontWeight: 'bold', mb: 1 }}>
+                  Mesa {tables.find(t => t.id === selectedOrder.table_id)?.number || selectedOrder.table_id}
+                </Typography>
+                <Typography variant="body2">
+                  Pedido #{selectedOrder.id} • {new Date(selectedOrder.created_at).toLocaleString('pt-BR')}
+                </Typography>
+              </Box>
+              
+              <Typography variant="subtitle1" sx={{ fontWeight: 'bold', mb: 1 }}>
+                Itens do Pedido:
+              </Typography>
+              
+              <List>
+                {orderItems
+                  .filter(item => item.order_id === selectedOrder.id)
+                  .map(item => (
+                    <ListItem key={item.id} sx={{ py: 1, px: 0, borderBottom: '1px solid #eee' }}>
+                      <ListItemText 
+                        primary={item.menu_items?.name || `Item #${item.menu_item_id}`}
+                        secondary={item.notes || ''}
+                      />
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <Typography variant="body2" color="text.secondary">
+                          {item.quantity}x
+                        </Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                          R$ {((item.menu_items?.price || 0) * item.quantity).toFixed(2)}
+                        </Typography>
+                      </Box>
+                    </ListItem>
+                  ))}
+              </List>
+              
+              <Box sx={{ mt: 3, p: 2, bgcolor: 'grey.100', borderRadius: 2 }}>
+                <Typography variant="h6" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
+                  Total: R$ {
+                    (selectedOrder.total || orderItems
+                      .filter(item => item.order_id === selectedOrder.id)
+                      .reduce((sum, item) => sum + (item.quantity * (item.menu_items?.price || 0)), 0)
+                    ).toFixed(2)
+                  }
+                </Typography>
+              </Box>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={closeOrderDetails}>Voltar</Button>
+              <Button 
+                variant="contained" 
+                color="primary" 
+                startIcon={<PaymentIcon />}
+                onClick={() => openPaymentDialog(selectedOrder)}
+              >
+                Pagamento
+              </Button>
+            </DialogActions>
+          </>
+        )}
+      </Dialog>
+      
+      {/* Dialog para pagamento */}
+      <Dialog open={paymentDialog} onClose={closePaymentDialog} maxWidth="sm" fullWidth>
+        {selectedOrder && (
+          <>
+            <DialogTitle>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Typography variant="h6">Finalizar Pedido</Typography>
+                <IconButton onClick={closePaymentDialog} size="small">
+                  <ArrowBackIcon />
+                </IconButton>
+              </Box>
+            </DialogTitle>
+            <DialogContent>
+              <Box sx={{ mb: 3, p: 2, bgcolor: 'success.light', color: 'white', borderRadius: 2 }}>
+                <Typography variant="subtitle1" sx={{ fontWeight: 'bold', mb: 1 }}>
+                  Mesa {tables.find(t => t.id === selectedOrder.table_id)?.number || selectedOrder.table_id}
+                </Typography>
+                <Typography variant="h5" sx={{ fontWeight: 'bold' }}>
+                  Total: R$ {
+                    // Verificar se temos pedidos agrupados
+                    selectedOrder.allTableOrders
+                      ? (
+                          // Calcular o total de todos os pedidos da mesa
+                          selectedOrder.allTableOrders.reduce((total, order) => {
+                            // Para cada pedido, somar o total ou calcular a partir dos itens
+                            const orderTotal = order.total || orderItems
+                              .filter(item => item.order_id === order.id)
+                              .reduce((sum, item) => sum + (item.quantity * (item.menu_items?.price || 0)), 0);
+                            return total + Number(orderTotal);
+                          }, 0)
+                        )
+                      : (
+                          // Cálculo para um único pedido (compatibilidade)
+                          selectedOrder.total || orderItems
+                            .filter(item => item.order_id === selectedOrder.id)
+                            .reduce((sum, item) => sum + (item.quantity * (item.menu_items?.price || 0)), 0)
+                        )
+                  }.toFixed(2)
+                </Typography>
+              </Box>
+              
+              <Typography variant="body1" sx={{ mb: 3 }}>
+                Confirme o recebimento do pagamento para finalizar este pedido, imprimir a comanda e liberar a mesa (se não houver outros pedidos ativos para ela).
+              </Typography>
+              
+              <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, mb: 2 }}>
+                <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                  <Card sx={{ p: 2, width: 100, textAlign: 'center', boxShadow: 2, borderRadius: 2 }}>
+                    <Typography variant="body2" color="text.secondary">Forma de Pagamento</Typography>
+                    <Typography variant="body1" sx={{ fontWeight: 'bold', mt: 1 }}>Dinheiro</Typography>
+                  </Card>
+                </motion.div>
+                
+                <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                  <Card sx={{ p: 2, width: 100, textAlign: 'center', boxShadow: 2, borderRadius: 2 }}>
+                    <Typography variant="body2" color="text.secondary">Forma de Pagamento</Typography>
+                    <Typography variant="body1" sx={{ fontWeight: 'bold', mt: 1 }}>Cartão</Typography>
+                  </Card>
+                </motion.div>
+                
+                <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                  <Card sx={{ p: 2, width: 100, textAlign: 'center', boxShadow: 2, borderRadius: 2 }}>
+                    <Typography variant="body2" color="text.secondary">Forma de Pagamento</Typography>
+                    <Typography variant="body1" sx={{ fontWeight: 'bold', mt: 1 }}>Pix</Typography>
+                  </Card>
+                </motion.div>
+              </Box>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={closePaymentDialog}>Cancelar</Button>
+              <Button 
+                variant="contained" 
+                color="success" 
+                startIcon={printingOrder ? <CircularProgress size={20} color="inherit" /> : <PrintIcon />}
+                onClick={completeOrder}
+                disabled={printingOrder}
+              >
+                {printingOrder ? 'Imprimindo...' : 'Imprimir e Finalizar'}
+              </Button>
+            </DialogActions>
+          </>
+        )}
+      </Dialog>
+      
+      {/* Componente oculto para impressão */}
+      <div style={{ display: 'none' }}>
+        <div ref={printComponentRef}>
+          <Paper sx={{ p: 3, maxWidth: '80mm', margin: '0 auto' }}>
+            <Box sx={{ textAlign: 'center', mb: 2 }}>
+              <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
+                Restaurante QR Menu
+              </Typography>
+              <Typography variant="body2">
+                CNPJ: 00.000.000/0001-00
+              </Typography>
+              <Typography variant="body2">
+                {new Date().toLocaleDateString('pt-BR')}
+              </Typography>
+            </Box>
+            
+            <Divider sx={{ mb: 2 }} />
+            
+            {selectedOrder && (
+              <>
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>
+                    COMANDA - MESA {tables.find(t => t.id === selectedOrder.table_id)?.number || selectedOrder.table_id}
+                  </Typography>
+                  <Typography variant="body2">
+                    Pedido #{selectedOrder.id}
+                  </Typography>
+                  <Typography variant="body2">
+                    {new Date(selectedOrder.created_at).toLocaleString('pt-BR')}
+                  </Typography>
+                </Box>
+                
+                <Divider sx={{ mb: 2 }} />
+                
+                <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1 }}>
+                  ITENS
+                </Typography>
+                
+                {/* Verificar se temos pedidos agrupados */}
+                {selectedOrder.allTableOrders ? (
+                  // Mostrar todos os itens de todos os pedidos da mesa
+                  selectedOrder.allTableOrders.flatMap(order => 
+                    orderItems
+                      .filter(item => item.order_id === order.id)
+                      .map((item, index) => (
+                        <Box key={`${order.id}-${item.id}`} sx={{ mb: 1, display: 'flex', justifyContent: 'space-between' }}>
+                          <Box>
+                            <Typography variant="body2">
+                              {item.quantity}x {item.menu_items?.name || `Item #${item.menu_item_id}`}
+                            </Typography>
+                            {item.notes && (
+                              <Typography variant="caption" sx={{ display: 'block', ml: 2 }}>
+                                {item.notes}
+                              </Typography>
+                            )}
+                          </Box>
+                          <Typography variant="body2">
+                            R$ {((item.menu_items?.price || 0) * item.quantity).toFixed(2)}
+                          </Typography>
+                        </Box>
+                      ))
+                  )
+                ) : (
+                  // Mostrar apenas os itens do pedido selecionado (compatibilidade)
+                  orderItems
+                    .filter(item => item.order_id === selectedOrder.id)
+                    .map((item, index) => (
+                      <Box key={item.id} sx={{ mb: 1, display: 'flex', justifyContent: 'space-between' }}>
+                        <Box>
+                          <Typography variant="body2">
+                            {item.quantity}x {item.menu_items?.name || `Item #${item.menu_item_id}`}
+                          </Typography>
+                          {item.notes && (
+                            <Typography variant="caption" sx={{ display: 'block', ml: 2 }}>
+                              {item.notes}
+                            </Typography>
+                          )}
+                        </Box>
+                        <Typography variant="body2">
+                          R$ {((item.menu_items?.price || 0) * item.quantity).toFixed(2)}
+                        </Typography>
+                      </Box>
+                    ))
+                )}
+                
+                <Divider sx={{ my: 2 }} />
+                
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
+                    TOTAL
+                  </Typography>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
+                    R$ {
+                      // Verificar se temos pedidos agrupados
+                      selectedOrder.allTableOrders
+                        ? (
+                            // Calcular o total de todos os pedidos da mesa
+                            selectedOrder.allTableOrders.reduce((total, order) => {
+                              // Para cada pedido, somar o total ou calcular a partir dos itens
+                              const orderTotal = order.total || orderItems
+                                .filter(item => item.order_id === order.id)
+                                .reduce((sum, item) => sum + (item.quantity * (item.menu_items?.price || 0)), 0);
+                              return total + Number(orderTotal);
+                            }, 0)
+                          )
+                        : (
+                            // Cálculo para um único pedido (compatibilidade)
+                            selectedOrder.total || orderItems
+                              .filter(item => item.order_id === selectedOrder.id)
+                              .reduce((sum, item) => sum + (item.quantity * (item.menu_items?.price || 0)), 0)
+                          )
+                    }.toFixed(2)
+                  </Typography>
+                </Box>
+                
+                <Divider sx={{ my: 2 }} />
+                
+                <Box sx={{ textAlign: 'center', mt: 3 }}>
+                  <Typography variant="body2">
+                    Obrigado pela preferência!
+                  </Typography>
+                  <Typography variant="caption" sx={{ display: 'block', mt: 1 }}>
+                    www.restauranteqrmenu.com.br
+                  </Typography>
+                </Box>
+              </>
+            )}
+          </Paper>
+        </div>
+      </div>
+        {/* Snackbar feedback */}
+        <Snackbar
+          open={snackbar.open}
+          autoHideDuration={2500}
+          onClose={()=>setSnackbar(s=>({...s,open:false}))}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        >
+          <Alert severity={snackbar.severity} variant="filled" sx={{ fontWeight: 500 }}>{snackbar.message}</Alert>
+        </Snackbar>
+      </Box>
+    </Box>
+  );
+}
