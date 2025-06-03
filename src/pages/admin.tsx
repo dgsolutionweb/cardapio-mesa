@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import {
-  AppBar, Toolbar, Typography, Drawer, List, ListItem, ListItemIcon, ListItemText, Divider, IconButton, Button, Box, Grid, Card, CardContent, CardActions, TextField, Dialog, DialogTitle, DialogContent, DialogActions, Snackbar, Alert, useTheme, useMediaQuery, CircularProgress, Avatar, Paper
+  AppBar, Toolbar, Typography, Drawer, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Divider, IconButton, Button, Box, Grid, Card, CardContent, CardActions, TextField, Dialog, DialogTitle, DialogContent, DialogActions, Snackbar, Alert, useTheme, useMediaQuery, CircularProgress, Avatar, Paper
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import TableBarIcon from '@mui/icons-material/TableBar';
@@ -433,44 +433,52 @@ export default function AdminPage() {
       </motion.div>
       <Divider />
       <List>
-        <ListItem button selected={currentPage === 'tables'} onClick={() => setCurrentPage('tables')} sx={{
-          borderRadius: 2,
-          mb: 1,
-          '&.Mui-selected': { bgcolor: 'primary.main', color: 'white',
-            '& .MuiListItemIcon-root': { color: 'white' }
-          }
-        }}>
-          <ListItemIcon><TableBarIcon /></ListItemIcon>
-          <ListItemText primary="Mesas" />
+        <ListItem disablePadding>
+          <ListItemButton selected={currentPage === 'tables'} onClick={() => setCurrentPage('tables')} sx={{
+            borderRadius: 2,
+            mb: 1,
+            '&.Mui-selected': { bgcolor: 'primary.main', color: 'white',
+              '& .MuiListItemIcon-root': { color: 'white' }
+            }
+          }}>
+            <ListItemIcon><TableBarIcon /></ListItemIcon>
+            <ListItemText primary="Mesas" />
+          </ListItemButton>
         </ListItem>
-        <ListItem button selected={currentPage === 'menu'} onClick={() => setCurrentPage('menu')} sx={{
-          borderRadius: 2,
-          mb: 1,
-          '&.Mui-selected': { bgcolor: 'primary.main', color: 'white',
-            '& .MuiListItemIcon-root': { color: 'white' }
-          }
-        }}>
-          <ListItemIcon><RestaurantMenuIcon /></ListItemIcon>
-          <ListItemText primary="Cardápio" />
+        <ListItem disablePadding>
+          <ListItemButton selected={currentPage === 'menu'} onClick={() => setCurrentPage('menu')} sx={{
+            borderRadius: 2,
+            mb: 1,
+            '&.Mui-selected': { bgcolor: 'primary.main', color: 'white',
+              '& .MuiListItemIcon-root': { color: 'white' }
+            }
+          }}>
+            <ListItemIcon><RestaurantMenuIcon /></ListItemIcon>
+            <ListItemText primary="Cardápio" />
+          </ListItemButton>
         </ListItem>
-        <ListItem button selected={currentPage === 'orders'} onClick={() => setCurrentPage('orders')} sx={{
-          borderRadius: 2,
-          mb: 1,
-          '&.Mui-selected': { bgcolor: 'primary.main', color: 'white',
-            '& .MuiListItemIcon-root': { color: 'white' }
-          }
-        }}>
-          <ListItemIcon><ReceiptIcon /></ListItemIcon>
-          <ListItemText primary="Pedidos" />
+        <ListItem disablePadding>
+          <ListItemButton selected={currentPage === 'orders'} onClick={() => setCurrentPage('orders')} sx={{
+            borderRadius: 2,
+            mb: 1,
+            '&.Mui-selected': { bgcolor: 'primary.main', color: 'white',
+              '& .MuiListItemIcon-root': { color: 'white' }
+            }
+          }}>
+            <ListItemIcon><ReceiptIcon /></ListItemIcon>
+            <ListItemText primary="Pedidos" />
+          </ListItemButton>
         </ListItem>
-        <ListItem button selected={currentPage === 'settings'} onClick={() => setCurrentPage('settings')} sx={{
-          borderRadius: 2,
-          '&.Mui-selected': { bgcolor: 'primary.main', color: 'white',
-            '& .MuiListItemIcon-root': { color: 'white' }
-          }
-        }}>
-          <ListItemIcon><SettingsIcon /></ListItemIcon>
-          <ListItemText primary="Configurações" />
+        <ListItem disablePadding>
+          <ListItemButton selected={currentPage === 'settings'} onClick={() => setCurrentPage('settings')} sx={{
+            borderRadius: 2,
+            '&.Mui-selected': { bgcolor: 'primary.main', color: 'white',
+              '& .MuiListItemIcon-root': { color: 'white' }
+            }
+          }}>
+            <ListItemIcon><SettingsIcon /></ListItemIcon>
+            <ListItemText primary="Configurações" />
+          </ListItemButton>
         </ListItem>
       </List>
       <Divider sx={{ my: 2 }} />
@@ -513,7 +521,7 @@ export default function AdminPage() {
         {/* SPA interna: Mesas/Cardápio */}
         {currentPage === 'tables' && (
           <Grid container spacing={4} justifyContent="center">
-            <Grid item xs={12} md={7} lg={5}>
+            <Grid size={{ xs: 12, md: 7, lg: 5 }}>
               <motion.div initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.1 }}>
               <Card sx={{ p: 2, minHeight: 320, display: 'flex', flexDirection: 'column', boxShadow: 3, borderRadius: 4, background: 'rgba(255,255,255,0.97)', transition: 'box-shadow 0.2s', '&:hover': { boxShadow: 7 } }}>
                 <CardContent sx={{ flexGrow: 1 }}>
@@ -548,7 +556,7 @@ export default function AdminPage() {
         )}
         {currentPage === 'menu' && (
           <Grid container spacing={3}>
-            <Grid item xs={12}>
+            <Grid size={{ xs: 12 }}>
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
               <Card sx={{ p: 3, borderRadius: 4, boxShadow: 2 }}>
                 <CardContent>
@@ -572,7 +580,7 @@ export default function AdminPage() {
                   ) : (
                     <Grid container spacing={2}>
                       {menu.map(m => (
-                        <Grid item xs={12} sm={6} md={6} lg={4} key={m.id}>
+                        <Grid size={{ xs: 12, sm: 6, md: 6, lg: 4 }} key={m.id}>
                           <motion.div whileHover={{ scale: 1.03, boxShadow: '0 8px 32px 0 rgba(33,150,243,0.18)' }}>
                             <Card sx={{ mb: 2, boxShadow: 1, borderRadius: 3, height: '100%', display: 'flex', flexDirection: 'column', transition: 'box-shadow 0.2s' }}>
                               {m.image_url && <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.15 }}><Box sx={{ width:'100%', height: 120, background: `url(${m.image_url}) center/cover`, borderRadius: 2 }} /></motion.div>}
@@ -599,7 +607,7 @@ export default function AdminPage() {
         )}
         {currentPage === 'orders' && (
           <Grid container spacing={3}>
-            <Grid item xs={12} md={6}>
+            <Grid size={{ xs: 12, md: 6 }}>
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
                 <Card sx={{ p: 2, minHeight: 320, display: 'flex', flexDirection: 'column', boxShadow: 3, borderRadius: 4, background: 'rgba(255,255,255,0.97)' }}>
                   <CardContent sx={{ flexGrow: 1 }}>
@@ -625,7 +633,7 @@ export default function AdminPage() {
                           }
                           
                           return (
-                            <Grid item xs={6} sm={4} key={table.id}>
+                            <Grid size={{ xs: 6, sm: 4 }} key={table.id}>
                               <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
                                 <Card 
                                   sx={{ 
@@ -663,7 +671,7 @@ export default function AdminPage() {
               </motion.div>
             </Grid>
             
-            <Grid item xs={12} md={6}>
+            <Grid size={{ xs: 12, md: 6 }}>
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.2 }}>
                 <Card sx={{ p: 2, minHeight: 320, display: 'flex', flexDirection: 'column', boxShadow: 3, borderRadius: 4, background: 'rgba(255,255,255,0.97)' }}>
                   <CardContent sx={{ flexGrow: 1 }}>
@@ -809,7 +817,7 @@ export default function AdminPage() {
               </motion.div>
             </Grid>
             
-            <Grid item xs={12}>
+            <Grid size={{ xs: 12 }}>
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.4 }}>
                 <Card sx={{ p: 2, display: 'flex', flexDirection: 'column', boxShadow: 3, borderRadius: 4, background: 'rgba(255,255,255,0.97)' }}>
                   <CardContent>
@@ -872,7 +880,7 @@ export default function AdminPage() {
         )}
         {currentPage === 'settings' && (
           <Grid container spacing={3}>
-            <Grid item xs={12}>
+            <Grid size={{ xs: 12 }}>
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
               <Card sx={{ p: 3, borderRadius: 4, boxShadow: 2 }}>
                 <CardContent>
@@ -929,7 +937,7 @@ export default function AdminPage() {
           </Typography>
           
           <Grid container spacing={2}>
-            <Grid item xs={4}>
+            <Grid size={{ xs: 4 }}>
               <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
                 <Card 
                   sx={{ 
@@ -953,7 +961,7 @@ export default function AdminPage() {
               </motion.div>
             </Grid>
             
-            <Grid item xs={4}>
+            <Grid size={{ xs: 4 }}>
               <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
                 <Card 
                   sx={{ 
@@ -977,7 +985,7 @@ export default function AdminPage() {
               </motion.div>
             </Grid>
             
-            <Grid item xs={4}>
+            <Grid size={{ xs: 4 }}>
               <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
                 <Card 
                   sx={{ 
