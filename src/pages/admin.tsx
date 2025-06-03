@@ -18,6 +18,8 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import EventSeatIcon from '@mui/icons-material/EventSeat';
 import EventBusyIcon from '@mui/icons-material/EventBusy';
 import PaymentIcon from '@mui/icons-material/Payment';
+import CloudUploadIcon from '@mui/icons-material/CloudUpload';
+import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import DoneAllIcon from '@mui/icons-material/DoneAll';
 import PeopleIcon from '@mui/icons-material/People';
@@ -39,7 +41,27 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-const drawerWidth = 260;
+const drawerWidth = 280;
+
+// Estilos globais para animações
+const GlobalStyles = () => (
+  <style jsx global>{`
+    @keyframes pulse {
+      0% {
+        opacity: 0.6;
+        transform: scale(1);
+      }
+      50% {
+        opacity: 1;
+        transform: scale(1.05);
+      }
+      100% {
+        opacity: 0.6;
+        transform: scale(1);
+      }
+    }
+  `}</style>
+);
 
 export default function AdminPage() {
   // Mesas
@@ -50,6 +72,9 @@ export default function AdminPage() {
   const [menuDialog, setMenuDialog] = useState(false);
   const [editingMenu, setEditingMenu] = useState<any|null>(null);
   const [menuForm, setMenuForm] = useState({ name:'', description:'', price:'', image_url:'', category_id:'' });
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Categorias
   const [categories, setCategories] = useState<any[]>([]);
@@ -95,6 +120,15 @@ export default function AdminPage() {
     fetchCategories();
     fetchAddons();
   }, []);
+
+  // Controlar drawer baseado no tamanho da tela
+  useEffect(() => {
+    if (isMobile) {
+      setDrawerOpen(false);
+    } else {
+      setDrawerOpen(true);
+    }
+  }, [isMobile]);
   async function fetchTables() {
     setLoading(true);
     const { data } = await supabase.from('tables').select('*').order('number');
@@ -127,6 +161,51 @@ export default function AdminPage() {
         setSnackbar({open: true, message: `Erro ao buscar itens de pedidos: ${itemsError.message}`, severity: 'error'});
         return;
       }
+
+      // Buscar adicionais dos itens se houver itens
+      let orderItemAddonMap: Record<number, { id: number, name: string, price: number }[]> = {};
+      if (itemsData && itemsData.length > 0) {
+        const orderItemIds = itemsData.map(item => item.id);
+        
+        const { data: orderItemAddons, error: addonsError } = await supabase
+          .from('order_item_addons')
+          .select('order_item_id, addon_id, addon_name, addon_price')
+          .in('order_item_id', orderItemIds);
+          
+        if (addonsError) {
+          console.error('Erro ao buscar adicionais dos itens:', addonsError);
+        } else if (orderItemAddons && orderItemAddons.length > 0) {
+          console.log('Adicionais de itens encontrados no admin:', orderItemAddons.length);
+          // Criar mapa de item_id -> [addons]
+          for (const oia of orderItemAddons) {
+            if (!orderItemAddonMap[oia.order_item_id]) {
+              orderItemAddonMap[oia.order_item_id] = [];
+            }
+            orderItemAddonMap[oia.order_item_id].push({
+              id: oia.addon_id,
+              name: oia.addon_name,
+              price: oia.addon_price
+            });
+          }
+        }
+      }
+
+      // Buscar variações de tamanho
+      const { data: sizeVariants, error: sizeVariantsError } = await supabase
+        .from('size_variants')
+        .select('*');
+        
+      if (sizeVariantsError) {
+        console.error('Erro ao buscar variações de tamanho:', sizeVariantsError);
+      }
+
+      // Processar itens adicionando adicionais e variações
+      const processedItems = (itemsData || []).map(item => ({
+        ...item,
+        addons: orderItemAddonMap[item.id] || [],
+        size_variant: item.size_variant_id ? 
+          sizeVariants?.find(sv => sv.id === item.size_variant_id) : null
+      }));
       
       // Verificar se há pedidos ativos
       const activeOrders = ordersData?.filter(order => order.status !== 'completed') || [];
@@ -138,7 +217,7 @@ export default function AdminPage() {
       }
       
       setOrders(ordersData || []);
-      setOrderItems(itemsData || []);
+      setOrderItems(processedItems);
     } catch (error) {
       console.error('Erro ao buscar pedidos:', error);
       setSnackbar({open: true, message: `Erro inesperado: ${error}`, severity: 'error'});
@@ -557,10 +636,33 @@ export default function AdminPage() {
     
     setMenuDialog(true);
   }
-  function closeMenuDialog() { setMenuDialog(false); setEditingMenu(null); }
+  function closeMenuDialog() { 
+    setMenuDialog(false); 
+    setEditingMenu(null); 
+    setSelectedImageFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  }
   async function saveMenu() {
     try {
       console.log('MenuForm data:', menuForm);
+      
+      // Fazer upload da imagem se uma foi selecionada
+      let imageUrl = menuForm.image_url;
+      if (selectedImageFile) {
+        const uploadedImageUrl = await uploadImage();
+        if (uploadedImageUrl) {
+          // Se havia uma imagem anterior e não é a mesma, deletar a anterior
+          if (editingMenu && editingMenu.image_url && editingMenu.image_url !== uploadedImageUrl) {
+            await deleteImage(editingMenu.image_url);
+          }
+          imageUrl = uploadedImageUrl;
+        } else {
+          // Se falhou o upload, não continuar
+          return;
+        }
+      }
       
       let menuItemId;
       
@@ -570,7 +672,7 @@ export default function AdminPage() {
           name: menuForm.name,
           description: menuForm.description,
           price: Number(menuForm.price),
-          image_url: menuForm.image_url,
+          image_url: imageUrl,
           category_id: menuForm.category_id ? Number(menuForm.category_id) : null
         };
         
@@ -591,7 +693,7 @@ export default function AdminPage() {
           name: menuForm.name,
           description: menuForm.description,
           price: Number(menuForm.price),
-          image_url: menuForm.image_url,
+          image_url: imageUrl,
           category_id: menuForm.category_id ? Number(menuForm.category_id) : null
         };
         
@@ -658,8 +760,101 @@ export default function AdminPage() {
       setSnackbar({open:true,message:`Erro ao salvar: ${error.message}`,severity:'error'});
     }
   }
+
+  // Funções para upload de imagem
+  const handleImageFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      // Validar tipo de arquivo
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+      if (!allowedTypes.includes(file.type)) {
+        setSnackbar({open: true, message: 'Tipo de arquivo não suportado. Use JPEG, PNG, WEBP ou GIF.', severity: 'error'});
+        return;
+      }
+      
+      // Validar tamanho (5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        setSnackbar({open: true, message: 'Arquivo muito grande. Máximo 5MB.', severity: 'error'});
+        return;
+      }
+      
+      setSelectedImageFile(file);
+    }
+  };
+
+  const uploadImage = async () => {
+    if (!selectedImageFile) return null;
+    
+    setUploadingImage(true);
+    try {
+      // Gerar nome único para o arquivo
+      const fileExt = selectedImageFile.name.split('.').pop();
+      const fileName = `${Math.random().toString(36).substring(2)}-${Date.now()}.${fileExt}`;
+      
+      // Upload para o Supabase Storage
+      const { data, error } = await supabase.storage
+        .from('menu-images')
+        .upload(fileName, selectedImageFile);
+      
+      if (error) {
+        console.error('Erro no upload:', error);
+        throw error;
+      }
+      
+      // Obter URL pública da imagem
+      const { data: publicData } = supabase.storage
+        .from('menu-images')
+        .getPublicUrl(fileName);
+      
+      setSelectedImageFile(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      
+      return publicData.publicUrl;
+    } catch (error) {
+      console.error('Erro ao fazer upload da imagem:', error);
+      setSnackbar({open: true, message: `Erro ao fazer upload da imagem: ${error.message}`, severity: 'error'});
+      return null;
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  const deleteImage = async (imageUrl: string) => {
+    try {
+      // Extrair o nome do arquivo da URL
+      const urlParts = imageUrl.split('/');
+      const fileName = urlParts[urlParts.length - 1];
+      
+      const { error } = await supabase.storage
+        .from('menu-images')
+        .remove([fileName]);
+      
+      if (error) {
+        console.error('Erro ao deletar imagem:', error);
+      }
+    } catch (error) {
+      console.error('Erro ao deletar imagem:', error);
+    }
+  };
+
   async function removeMenu(id:number) {
+    // Buscar o item para pegar a URL da imagem
+    const { data: menuItem } = await supabase
+      .from('menu_items')
+      .select('image_url')
+      .eq('id', id)
+      .single();
+    
+    // Deletar o item do banco
     await supabase.from('menu_items').delete().eq('id', id);
+    
+    // Deletar a imagem associada se existir
+    if (menuItem?.image_url) {
+      await deleteImage(menuItem.image_url);
+    }
+    
     fetchMenu();
     setSnackbar({open:true,message:'Item removido!',severity:'info'});
   }
@@ -691,90 +886,458 @@ export default function AdminPage() {
 
   // Navegação Drawer
   const [currentPage, setCurrentPage] = useState<'tables' | 'menu' | 'orders' | 'settings'>('tables');
+  
+  const handlePageChange = (page: 'tables' | 'menu' | 'orders' | 'settings') => {
+    setCurrentPage(page);
+    // Fechar drawer automaticamente no mobile após navegar
+    if (isMobile) {
+      setDrawerOpen(false);
+    }
+  };
   const drawer = (
-    <Box sx={{ width: drawerWidth, pt: 2, fontFamily: 'Inter, Roboto Flex, sans-serif' }}>
-      <motion.div initial={{ scale: 0.7, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring', stiffness: 180, damping: 14 }}>
-        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 1 }}>
-          <Avatar sx={{ bgcolor: 'primary.main', width: 64, height: 64, mb: 1, boxShadow: 3 }}>
-            <EmojiFoodBeverageIcon sx={{ fontSize: 38 }} />
-          </Avatar>
-          <Typography variant="h5" sx={{ fontWeight: 800, color: 'primary.main', letterSpacing: 1 }}>
+    <Box sx={{ 
+      width: drawerWidth, 
+      height: '100%',
+      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      fontFamily: 'Inter, Roboto Flex, sans-serif',
+      position: 'relative',
+      overflow: 'hidden',
+      boxShadow: '4px 0 20px rgba(0,0,0,0.15)'
+    }}>
+      {/* Background decorativo com mais elementos */}
+      <Box sx={{
+        position: 'absolute',
+        top: 0,
+        right: 0,
+        width: 120,
+        height: 120,
+        background: 'radial-gradient(circle, rgba(255,255,255,0.15) 0%, transparent 70%)',
+        borderRadius: '50%',
+        transform: 'translate(40px, -40px)',
+        animation: 'pulse 3s infinite'
+      }} />
+      <Box sx={{
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        width: 100,
+        height: 100,
+        background: 'radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%)',
+        borderRadius: '50%',
+        transform: 'translate(-30px, 30px)',
+        animation: 'pulse 4s infinite reverse'
+      }} />
+      <Box sx={{
+        position: 'absolute',
+        top: '50%',
+        right: 0,
+        width: 60,
+        height: 60,
+        background: 'rgba(255,255,255,0.08)',
+        borderRadius: '50%',
+        transform: 'translate(20px, -50%)',
+        animation: 'pulse 2.5s infinite'
+      }} />
+      
+      <motion.div 
+        initial={{ scale: 0.7, opacity: 0, y: -20 }} 
+        animate={{ scale: 1, opacity: 1, y: 0 }} 
+        transition={{ type: 'spring', stiffness: 200, damping: 18 }}
+      >
+        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', pt: 4, pb: 3, px: 3 }}>
+          <Box sx={{ 
+            position: 'relative',
+            mb: 2
+          }}>
+            <Avatar sx={{ 
+              bgcolor: 'rgba(255,255,255,0.25)', 
+              width: 80, 
+              height: 80, 
+              mb: 1, 
+              backdropFilter: 'blur(15px)',
+              border: '3px solid rgba(255,255,255,0.4)',
+              boxShadow: '0 12px 40px rgba(0,0,0,0.25)',
+              transition: 'all 0.3s ease',
+              '&:hover': {
+                transform: 'scale(1.1) rotate(5deg)',
+                boxShadow: '0 15px 50px rgba(0,0,0,0.3)'
+              }
+            }}>
+              <EmojiFoodBeverageIcon sx={{ fontSize: 48, color: 'white' }} />
+            </Avatar>
+            {/* Glow effect mais refinado */}
+            <Box sx={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              borderRadius: '50%',
+              background: 'radial-gradient(circle, rgba(255,255,255,0.4) 0%, transparent 70%)',
+              animation: 'pulse 2.5s infinite',
+              zIndex: -1
+            }} />
+          </Box>
+          <Typography variant="h5" sx={{ 
+            fontWeight: 900, 
+            color: 'white', 
+            letterSpacing: 1.2,
+            textAlign: 'center',
+            textShadow: '0 3px 6px rgba(0,0,0,0.4)',
+            background: 'linear-gradient(45deg, #fff 30%, rgba(255,255,255,0.8) 90%)',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
+            backgroundClip: 'text'
+          }}>
             Painel Admin
+          </Typography>
+          <Typography variant="body2" sx={{ 
+            color: 'rgba(255,255,255,0.85)', 
+            textAlign: 'center',
+            mt: 0.5,
+            fontWeight: 500,
+            letterSpacing: 0.5
+          }}>
+            Cardápio Digital Pro
           </Typography>
         </Box>
       </motion.div>
-      <Divider />
-      <List>
-        <ListItem disablePadding>
-          <ListItemButton selected={currentPage === 'tables'} onClick={() => setCurrentPage('tables')} sx={{
-            borderRadius: 2,
-            mb: 1,
-            '&.Mui-selected': { bgcolor: 'primary.main', color: 'white',
-              '& .MuiListItemIcon-root': { color: 'white' }
-            }
-          }}>
-            <ListItemIcon><TableBarIcon /></ListItemIcon>
-            <ListItemText primary="Mesas" />
-          </ListItemButton>
-        </ListItem>
-        <ListItem disablePadding>
-          <ListItemButton selected={currentPage === 'menu'} onClick={() => setCurrentPage('menu')} sx={{
-            borderRadius: 2,
-            mb: 1,
-            '&.Mui-selected': { bgcolor: 'primary.main', color: 'white',
-              '& .MuiListItemIcon-root': { color: 'white' }
-            }
-          }}>
-            <ListItemIcon><RestaurantMenuIcon /></ListItemIcon>
-            <ListItemText primary="Cardápio" />
-          </ListItemButton>
-        </ListItem>
-        <ListItem disablePadding>
-          <ListItemButton selected={currentPage === 'orders'} onClick={() => setCurrentPage('orders')} sx={{
-            borderRadius: 2,
-            mb: 1,
-            '&.Mui-selected': { bgcolor: 'primary.main', color: 'white',
-              '& .MuiListItemIcon-root': { color: 'white' }
-            }
-          }}>
-            <ListItemIcon><ReceiptIcon /></ListItemIcon>
-            <ListItemText primary="Pedidos" />
-          </ListItemButton>
-        </ListItem>
-        <ListItem disablePadding>
-          <ListItemButton selected={currentPage === 'settings'} onClick={() => setCurrentPage('settings')} sx={{
-            borderRadius: 2,
-            '&.Mui-selected': { bgcolor: 'primary.main', color: 'white',
-              '& .MuiListItemIcon-root': { color: 'white' }
-            }
-          }}>
-            <ListItemIcon><SettingsIcon /></ListItemIcon>
-            <ListItemText primary="Configurações" />
-          </ListItemButton>
-        </ListItem>
-      </List>
-      <Divider sx={{ my: 2 }} />
-      <Box sx={{ textAlign: 'center', color: 'text.secondary', fontSize: 13, mt: 2 }}>
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-          {new Date().getFullYear()} Cardápio Digital
-        </motion.div>
+      
+      <Box sx={{ px: 3, pb: 3 }}>
+        <List sx={{ '& .MuiListItem-root': { mb: 1.5 } }}>
+          <motion.div
+            initial={{ x: -50, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            transition={{ delay: 0.1, duration: 0.3 }}
+          >
+            <ListItem disablePadding>
+              <ListItemButton 
+                selected={currentPage === 'tables'} 
+                onClick={() => handlePageChange('tables')} 
+                sx={{
+                  borderRadius: 4,
+                  py: 2,
+                  px: 3,
+                  background: currentPage === 'tables' ? 'rgba(255,255,255,0.25)' : 'transparent',
+                  backdropFilter: currentPage === 'tables' ? 'blur(15px)' : 'none',
+                  border: currentPage === 'tables' ? '2px solid rgba(255,255,255,0.4)' : '2px solid transparent',
+                  transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+                  position: 'relative',
+                  overflow: 'hidden',
+                  '&:hover': { 
+                    background: 'rgba(255,255,255,0.2)',
+                    backdropFilter: 'blur(15px)',
+                    transform: 'translateX(8px) scale(1.02)',
+                    border: '2px solid rgba(255,255,255,0.3)',
+                    boxShadow: '0 8px 25px rgba(0,0,0,0.15)'
+                  },
+                  '&.Mui-selected': { 
+                    background: 'rgba(255,255,255,0.3)',
+                    backdropFilter: 'blur(20px)',
+                    boxShadow: '0 10px 30px rgba(0,0,0,0.2)',
+                    '&:hover': {
+                      background: 'rgba(255,255,255,0.35)'
+                    },
+                    '&::before': {
+                      content: '""',
+                      position: 'absolute',
+                      left: 0,
+                      top: 0,
+                      width: '4px',
+                      height: '100%',
+                      background: 'linear-gradient(to bottom, #fff, rgba(255,255,255,0.8))',
+                      borderRadius: '0 2px 2px 0'
+                    }
+                  }
+                }}
+              >
+                <ListItemIcon sx={{ minWidth: 48 }}>
+                  <TableBarIcon sx={{ 
+                    color: 'white', 
+                    fontSize: 28,
+                    filter: currentPage === 'tables' ? 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' : 'none',
+                    transition: 'all 0.3s ease'
+                  }} />
+                </ListItemIcon>
+                <ListItemText 
+                  primary="Mesas" 
+                  primaryTypographyProps={{
+                    fontWeight: currentPage === 'tables' ? 700 : 600,
+                    color: 'white',
+                    fontSize: '1rem',
+                    letterSpacing: 0.5,
+                    sx: {
+                      textShadow: currentPage === 'tables' ? '0 2px 4px rgba(0,0,0,0.3)' : 'none'
+                    }
+                  }}
+                />
+              </ListItemButton>
+            </ListItem>
+          </motion.div>
+          
+          <motion.div
+            initial={{ x: -50, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            transition={{ delay: 0.2, duration: 0.3 }}
+          >
+            <ListItem disablePadding>
+              <ListItemButton 
+                selected={currentPage === 'menu'} 
+                onClick={() => handlePageChange('menu')} 
+                sx={{
+                  borderRadius: 4,
+                  py: 2,
+                  px: 3,
+                  background: currentPage === 'menu' ? 'rgba(255,255,255,0.25)' : 'transparent',
+                  backdropFilter: currentPage === 'menu' ? 'blur(15px)' : 'none',
+                  border: currentPage === 'menu' ? '2px solid rgba(255,255,255,0.4)' : '2px solid transparent',
+                  transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+                  position: 'relative',
+                  overflow: 'hidden',
+                  '&:hover': { 
+                    background: 'rgba(255,255,255,0.2)',
+                    backdropFilter: 'blur(15px)',
+                    transform: 'translateX(8px) scale(1.02)',
+                    border: '2px solid rgba(255,255,255,0.3)',
+                    boxShadow: '0 8px 25px rgba(0,0,0,0.15)'
+                  },
+                  '&.Mui-selected': { 
+                    background: 'rgba(255,255,255,0.3)',
+                    backdropFilter: 'blur(20px)',
+                    boxShadow: '0 10px 30px rgba(0,0,0,0.2)',
+                    '&:hover': {
+                      background: 'rgba(255,255,255,0.35)'
+                    },
+                    '&::before': {
+                      content: '""',
+                      position: 'absolute',
+                      left: 0,
+                      top: 0,
+                      width: '4px',
+                      height: '100%',
+                      background: 'linear-gradient(to bottom, #fff, rgba(255,255,255,0.8))',
+                      borderRadius: '0 2px 2px 0'
+                    }
+                  }
+                }}
+              >
+                <ListItemIcon sx={{ minWidth: 48 }}>
+                  <RestaurantMenuIcon sx={{ 
+                    color: 'white', 
+                    fontSize: 28,
+                    filter: currentPage === 'menu' ? 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' : 'none',
+                    transition: 'all 0.3s ease'
+                  }} />
+                </ListItemIcon>
+                <ListItemText 
+                  primary="Cardápio" 
+                  primaryTypographyProps={{
+                    fontWeight: currentPage === 'menu' ? 700 : 600,
+                    color: 'white',
+                    fontSize: '1rem',
+                    letterSpacing: 0.5,
+                    sx: {
+                      textShadow: currentPage === 'menu' ? '0 2px 4px rgba(0,0,0,0.3)' : 'none'
+                    }
+                  }}
+                />
+              </ListItemButton>
+            </ListItem>
+          </motion.div>
+          
+          <motion.div
+            initial={{ x: -50, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            transition={{ delay: 0.3, duration: 0.3 }}
+          >
+            <ListItem disablePadding>
+              <ListItemButton 
+                selected={currentPage === 'orders'} 
+                onClick={() => handlePageChange('orders')} 
+                sx={{
+                  borderRadius: 4,
+                  py: 2,
+                  px: 3,
+                  background: currentPage === 'orders' ? 'rgba(255,255,255,0.25)' : 'transparent',
+                  backdropFilter: currentPage === 'orders' ? 'blur(15px)' : 'none',
+                  border: currentPage === 'orders' ? '2px solid rgba(255,255,255,0.4)' : '2px solid transparent',
+                  transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+                  position: 'relative',
+                  overflow: 'hidden',
+                  '&:hover': { 
+                    background: 'rgba(255,255,255,0.2)',
+                    backdropFilter: 'blur(15px)',
+                    transform: 'translateX(8px) scale(1.02)',
+                    border: '2px solid rgba(255,255,255,0.3)',
+                    boxShadow: '0 8px 25px rgba(0,0,0,0.15)'
+                  },
+                  '&.Mui-selected': { 
+                    background: 'rgba(255,255,255,0.3)',
+                    backdropFilter: 'blur(20px)',
+                    boxShadow: '0 10px 30px rgba(0,0,0,0.2)',
+                    '&:hover': {
+                      background: 'rgba(255,255,255,0.35)'
+                    },
+                    '&::before': {
+                      content: '""',
+                      position: 'absolute',
+                      left: 0,
+                      top: 0,
+                      width: '4px',
+                      height: '100%',
+                      background: 'linear-gradient(to bottom, #fff, rgba(255,255,255,0.8))',
+                      borderRadius: '0 2px 2px 0'
+                    }
+                  }
+                }}
+              >
+                <ListItemIcon sx={{ minWidth: 48 }}>
+                  <ReceiptIcon sx={{ 
+                    color: 'white', 
+                    fontSize: 28,
+                    filter: currentPage === 'orders' ? 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' : 'none',
+                    transition: 'all 0.3s ease'
+                  }} />
+                </ListItemIcon>
+                <ListItemText 
+                  primary="Pedidos" 
+                  primaryTypographyProps={{
+                    fontWeight: currentPage === 'orders' ? 700 : 600,
+                    color: 'white',
+                    fontSize: '1rem',
+                    letterSpacing: 0.5,
+                    sx: {
+                      textShadow: currentPage === 'orders' ? '0 2px 4px rgba(0,0,0,0.3)' : 'none'
+                    }
+                  }}
+                />
+              </ListItemButton>
+            </ListItem>
+          </motion.div>
+          
+          <motion.div
+            initial={{ x: -50, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            transition={{ delay: 0.4, duration: 0.3 }}
+          >
+            <ListItem disablePadding>
+              <ListItemButton 
+                selected={currentPage === 'settings'} 
+                onClick={() => handlePageChange('settings')} 
+                sx={{
+                  borderRadius: 4,
+                  py: 2,
+                  px: 3,
+                  background: currentPage === 'settings' ? 'rgba(255,255,255,0.25)' : 'transparent',
+                  backdropFilter: currentPage === 'settings' ? 'blur(15px)' : 'none',
+                  border: currentPage === 'settings' ? '2px solid rgba(255,255,255,0.4)' : '2px solid transparent',
+                  transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+                  position: 'relative',
+                  overflow: 'hidden',
+                  '&:hover': { 
+                    background: 'rgba(255,255,255,0.2)',
+                    backdropFilter: 'blur(15px)',
+                    transform: 'translateX(8px) scale(1.02)',
+                    border: '2px solid rgba(255,255,255,0.3)',
+                    boxShadow: '0 8px 25px rgba(0,0,0,0.15)'
+                  },
+                  '&.Mui-selected': { 
+                    background: 'rgba(255,255,255,0.3)',
+                    backdropFilter: 'blur(20px)',
+                    boxShadow: '0 10px 30px rgba(0,0,0,0.2)',
+                    '&:hover': {
+                      background: 'rgba(255,255,255,0.35)'
+                    },
+                    '&::before': {
+                      content: '""',
+                      position: 'absolute',
+                      left: 0,
+                      top: 0,
+                      width: '4px',
+                      height: '100%',
+                      background: 'linear-gradient(to bottom, #fff, rgba(255,255,255,0.8))',
+                      borderRadius: '0 2px 2px 0'
+                    }
+                  }
+                }}
+              >
+                <ListItemIcon sx={{ minWidth: 48 }}>
+                  <SettingsIcon sx={{ 
+                    color: 'white', 
+                    fontSize: 28,
+                    filter: currentPage === 'settings' ? 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' : 'none',
+                    transition: 'all 0.3s ease'
+                  }} />
+                </ListItemIcon>
+                <ListItemText 
+                  primary="Configurações" 
+                  primaryTypographyProps={{
+                    fontWeight: currentPage === 'settings' ? 700 : 600,
+                    color: 'white',
+                    fontSize: '1rem',
+                    letterSpacing: 0.5,
+                    sx: {
+                      textShadow: currentPage === 'settings' ? '0 2px 4px rgba(0,0,0,0.3)' : 'none'
+                    }
+                  }}
+                />
+              </ListItemButton>
+            </ListItem>
+          </motion.div>
+        </List>
       </Box>
+      
+      {/* Footer do sidebar */}
+      <motion.div
+        initial={{ y: 50, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ delay: 0.6, duration: 0.4 }}
+      >
+        <Box sx={{ 
+          position: 'absolute', 
+          bottom: 0, 
+          left: 0, 
+          right: 0, 
+          p: 3,
+          background: 'linear-gradient(180deg, rgba(0,0,0,0.1) 0%, rgba(0,0,0,0.2) 100%)',
+          backdropFilter: 'blur(10px)',
+          borderTop: '1px solid rgba(255,255,255,0.1)'
+        }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 1 }}>
+            <Box sx={{
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              background: '#4CAF50',
+              mr: 1,
+              animation: 'pulse 2s infinite'
+            }} />
+            <Typography variant="caption" sx={{ 
+              color: 'rgba(255,255,255,0.9)', 
+              fontWeight: 600,
+              fontSize: '0.75rem'
+            }}>
+              Sistema Online
+            </Typography>
+          </Box>
+          <Typography variant="caption" sx={{ 
+            color: 'rgba(255,255,255,0.7)', 
+            textAlign: 'center',
+            display: 'block',
+            fontSize: '0.7rem',
+            letterSpacing: 0.5
+          }}>
+            v1.2.0 • 2025 • Pro
+          </Typography>
+        </Box>
+      </motion.div>
     </Box>
   );
 
   return (
-    <Box sx={{ display: 'flex', minHeight: '100vh', background: theme.palette.grey[50] }}>
-      {/* AppBar */}
-      <AppBar position="fixed" sx={{ zIndex: theme.zIndex.drawer + 1, background: 'linear-gradient(90deg, #1976d2 60%, #2196f3 100%)' }}>
-        <Toolbar>
-          {isMobile && (
-            <IconButton color="inherit" edge="start" onClick={()=>setDrawerOpen(true)} sx={{ mr: 2 }}><MenuIcon /></IconButton>
-          )}
-          <Typography variant="h6" noWrap component="div" sx={{ fontWeight: 700 }}>
-            Cardápio Digital - Administração
-          </Typography>
-        </Toolbar>
-      </AppBar>
+    <>
+      <GlobalStyles />
+      <Box sx={{ display: 'flex', minHeight: '100vh', background: theme.palette.grey[50] }}>
       {/* Drawer lateral */}
       <Drawer
         variant={isMobile ? 'temporary' : 'permanent'}
@@ -783,13 +1346,108 @@ export default function AdminPage() {
         sx={{
           width: drawerWidth,
           flexShrink: 0,
-          [`& .MuiDrawer-paper`]: { width: drawerWidth, boxSizing: 'border-box', background: '#fff' },
+          [`& .MuiDrawer-paper`]: { 
+            width: drawerWidth, 
+            boxSizing: 'border-box', 
+            background: 'transparent',
+            border: 'none',
+            boxShadow: isMobile ? '0 0 20px rgba(0,0,0,0.3)' : 'none'
+          },
+        }}
+        ModalProps={{
+          keepMounted: true, // Better open performance on mobile
         }}
       >
         {drawer}
       </Drawer>
+      {/* Botão flutuante para abrir sidebar no mobile */}
+      {isMobile && !drawerOpen && (
+        <motion.div
+          initial={{ scale: 0, rotate: -180 }}
+          animate={{ scale: 1, rotate: 0 }}
+          transition={{ type: 'spring', stiffness: 260, damping: 20 }}
+        >
+          <IconButton
+            onClick={() => setDrawerOpen(true)}
+            sx={{
+              position: 'fixed',
+              top: 20,
+              left: 20,
+              zIndex: theme.zIndex.drawer + 2,
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              color: 'white',
+              width: 56,
+              height: 56,
+              boxShadow: '0 8px 25px rgba(102, 126, 234, 0.4)',
+              '&:hover': {
+                background: 'linear-gradient(135deg, #764ba2 0%, #667eea 100%)',
+                transform: 'scale(1.1)',
+                boxShadow: '0 12px 35px rgba(102, 126, 234, 0.6)',
+              },
+              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+            }}
+          >
+            <MenuIcon sx={{ fontSize: 28 }} />
+          </IconButton>
+        </motion.div>
+      )}
+
       {/* Conteúdo principal */}
-      <Box component="main" sx={{ flexGrow: 1, p: { xs: 2, md: 4 }, mt: 8, fontFamily: 'Inter, Roboto Flex, sans-serif' }}>
+      <Box 
+        component="main" 
+        sx={{ 
+          flexGrow: 1, 
+          p: { xs: 2, md: 4 }, 
+          fontFamily: 'Inter, Roboto Flex, sans-serif',
+          ml: { xs: 0, md: drawerOpen ? 0 : 0 }, // Remover margem fixa
+          transition: theme.transitions.create(['margin'], {
+            easing: theme.transitions.easing.easeOut,
+            duration: theme.transitions.duration.enteringScreen,
+          }),
+          minHeight: '100vh',
+          background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)'
+        }}
+      >
+        {/* Cabeçalho da página */}
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
+        >
+          <Box sx={{ 
+            mb: 4, 
+            p: 3, 
+            background: 'rgba(255,255,255,0.95)', 
+            borderRadius: 4, 
+            boxShadow: '0 4px 20px rgba(0,0,0,0.1)',
+            backdropFilter: 'blur(10px)',
+            border: '1px solid rgba(255,255,255,0.2)'
+          }}>
+            <Typography variant="h4" sx={{ 
+              fontWeight: 800, 
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              backgroundClip: 'text',
+              mb: 1
+            }}>
+              {currentPage === 'tables' && 'Gerenciamento de Mesas'}
+              {currentPage === 'menu' && 'Cardápio & Produtos'}
+              {currentPage === 'orders' && 'Histórico de Pedidos'}
+              {currentPage === 'settings' && 'Configurações do Sistema'}
+            </Typography>
+            <Typography variant="body1" sx={{ 
+              color: 'text.secondary',
+              fontWeight: 500
+            }}>
+              {currentPage === 'tables' && 'Adicione, remova e gerencie as mesas do restaurante'}
+              {currentPage === 'menu' && 'Gerencie produtos, categorias, adicionais e variações'}
+              {currentPage === 'orders' && 'Visualize e acompanhe todos os pedidos realizados'}
+              {currentPage === 'settings' && 'Configure as preferências do sistema'}
+            </Typography>
+          </Box>
+        </motion.div>
+
         {/* SPA interna: Mesas/Cardápio */}
         {currentPage === 'tables' && (
           <Grid container spacing={4} justifyContent="center">
@@ -1253,12 +1911,88 @@ export default function AdminPage() {
                     />
                   </Grid>
                   <Grid size={{ xs: 12, md: 6 }}>
-                    <TextField 
-                      label="URL da imagem" 
-                      fullWidth 
-                      value={menuForm.image_url} 
-                      onChange={e=>setMenuForm(f=>({...f,image_url:e.target.value}))} 
-                    />
+                    <Box>
+                      <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
+                        Imagem do Produto
+                      </Typography>
+                      
+                      {/* Preview da imagem atual */}
+                      {(menuForm.image_url || selectedImageFile) && (
+                        <Box sx={{ mb: 2 }}>
+                          <img 
+                            src={selectedImageFile ? URL.createObjectURL(selectedImageFile) : menuForm.image_url} 
+                            alt="Preview" 
+                            style={{ 
+                              width: '100%', 
+                              maxWidth: '200px', 
+                              height: '120px', 
+                              objectFit: 'cover', 
+                              borderRadius: '8px',
+                              border: '1px solid #ddd'
+                            }} 
+                          />
+                        </Box>
+                      )}
+                      
+                      {/* Input de arquivo escondido */}
+                      <input
+                        type="file"
+                        ref={fileInputRef}
+                        onChange={handleImageFileSelect}
+                        accept="image/jpeg,image/png,image/webp,image/gif"
+                        style={{ display: 'none' }}
+                      />
+                      
+                      {/* Botões */}
+                      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                        <Button
+                          variant="outlined"
+                          startIcon={<CloudUploadIcon />}
+                          onClick={() => fileInputRef.current?.click()}
+                          disabled={uploadingImage}
+                        >
+                          {selectedImageFile ? 'Trocar Imagem' : 'Selecionar Imagem'}
+                        </Button>
+                        
+                        {selectedImageFile && (
+                          <Button
+                            variant="outlined"
+                            color="error"
+                            onClick={() => {
+                              setSelectedImageFile(null);
+                              if (fileInputRef.current) {
+                                fileInputRef.current.value = '';
+                              }
+                            }}
+                          >
+                            Cancelar
+                          </Button>
+                        )}
+                        
+                        {menuForm.image_url && !selectedImageFile && (
+                          <Button
+                            variant="outlined"
+                            color="error"
+                            onClick={() => setMenuForm(f => ({...f, image_url: ''}))}
+                          >
+                            Remover Imagem
+                          </Button>
+                        )}
+                      </Box>
+                      
+                      {selectedImageFile && (
+                        <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                          Arquivo selecionado: {selectedImageFile.name}
+                        </Typography>
+                      )}
+                      
+                      {uploadingImage && (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
+                          <CircularProgress size={16} />
+                          <Typography variant="caption">Fazendo upload...</Typography>
+                        </Box>
+                      )}
+                    </Box>
                   </Grid>
                 </Grid>
               </Box>
@@ -1530,22 +2264,68 @@ export default function AdminPage() {
               <List>
                 {orderItems
                   .filter(item => item.order_id === selectedOrder.id)
-                  .map(item => (
-                    <ListItem key={item.id} sx={{ py: 1, px: 0, borderBottom: '1px solid #eee' }}>
-                      <ListItemText 
-                        primary={item.menu_items?.name || `Item #${item.menu_item_id}`}
-                        secondary={item.notes || ''}
-                      />
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                        <Typography variant="body2" color="text.secondary">
-                          {item.quantity}x
-                        </Typography>
-                        <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
-                          R$ {((item.menu_items?.price || 0) * item.quantity).toFixed(2)}
-                        </Typography>
-                      </Box>
-                    </ListItem>
-                  ))}
+                  .map(item => {
+                    // Calcular preço unitário considerando variação de tamanho
+                    const basePrice = item.menu_items?.price || 0;
+                    const sizeModifier = item.size_variant?.price_modifier || 0;
+                    const unitPrice = basePrice + sizeModifier;
+                    
+                    // Calcular preço dos adicionais
+                    const addonsPrice = (item.addons || []).reduce((sum, addon) => sum + addon.price, 0);
+                    
+                    // Preço total do item (unitário + adicionais) * quantidade
+                    const itemTotal = (unitPrice + addonsPrice) * item.quantity;
+                    
+                    return (
+                      <ListItem key={item.id} sx={{ py: 1, px: 0, borderBottom: '1px solid #eee', flexDirection: 'column', alignItems: 'flex-start' }}>
+                        <Box sx={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                          <Box sx={{ flex: 1 }}>
+                            <Typography variant="body1" sx={{ fontWeight: 'bold' }}>
+                              {item.menu_items?.name || `Item #${item.menu_item_id}`}
+                            </Typography>
+                            
+                            {/* Variação de tamanho */}
+                            {item.size_variant && (
+                              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                                Tamanho: {item.size_variant.size_name} 
+                                {sizeModifier !== 0 && ` (${sizeModifier > 0 ? '+' : ''}R$ ${sizeModifier.toFixed(2)})`}
+                              </Typography>
+                            )}
+                            
+                            {/* Adicionais */}
+                            {item.addons && item.addons.length > 0 && (
+                              <Box sx={{ mt: 0.5 }}>
+                                <Typography variant="body2" color="text.secondary">
+                                  Adicionais:
+                                </Typography>
+                                {item.addons.map((addon, index) => (
+                                  <Typography key={index} variant="body2" color="text.secondary" sx={{ ml: 1 }}>
+                                    • {addon.name} (+R$ {addon.price.toFixed(2)})
+                                  </Typography>
+                                ))}
+                              </Box>
+                            )}
+                            
+                            {/* Observações */}
+                            {item.notes && (
+                              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontStyle: 'italic' }}>
+                                Obs: {item.notes}
+                              </Typography>
+                            )}
+                          </Box>
+                          
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, ml: 2 }}>
+                            <Typography variant="body2" color="text.secondary">
+                              {item.quantity}x
+                            </Typography>
+                            <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                              R$ {itemTotal.toFixed(2)}
+                            </Typography>
+                          </Box>
+                        </Box>
+                      </ListItem>
+                    );
+                  })}
               </List>
               
               <Box sx={{ mt: 3, p: 2, bgcolor: 'grey.100', borderRadius: 2 }}>
@@ -1553,7 +2333,13 @@ export default function AdminPage() {
                   Total: R$ {
                     (selectedOrder.total || orderItems
                       .filter(item => item.order_id === selectedOrder.id)
-                      .reduce((sum, item) => sum + (item.quantity * (item.menu_items?.price || 0)), 0)
+                      .reduce((sum, item) => {
+                        const basePrice = item.menu_items?.price || 0;
+                        const sizeModifier = item.size_variant?.price_modifier || 0;
+                        const unitPrice = basePrice + sizeModifier;
+                        const addonsPrice = (item.addons || []).reduce((addonSum, addon) => addonSum + addon.price, 0);
+                        return sum + ((unitPrice + addonsPrice) * item.quantity);
+                      }, 0)
                     ).toFixed(2)
                   }
                 </Typography>
@@ -1601,7 +2387,13 @@ export default function AdminPage() {
                             // Para cada pedido, somar o total ou calcular a partir dos itens
                             const orderTotal = order.total || orderItems
                               .filter(item => item.order_id === order.id)
-                              .reduce((sum, item) => sum + (item.quantity * (item.menu_items?.price || 0)), 0);
+                              .reduce((sum, item) => {
+                                const basePrice = item.menu_items?.price || 0;
+                                const sizeModifier = item.size_variant?.price_modifier || 0;
+                                const unitPrice = basePrice + sizeModifier;
+                                const addonsPrice = (item.addons || []).reduce((addonSum, addon) => addonSum + addon.price, 0);
+                                return sum + ((unitPrice + addonsPrice) * item.quantity);
+                              }, 0);
                             return total + Number(orderTotal);
                           }, 0)
                         )
@@ -1609,7 +2401,13 @@ export default function AdminPage() {
                           // Cálculo para um único pedido (compatibilidade)
                           selectedOrder.total || orderItems
                             .filter(item => item.order_id === selectedOrder.id)
-                            .reduce((sum, item) => sum + (item.quantity * (item.menu_items?.price || 0)), 0)
+                            .reduce((sum, item) => {
+                              const basePrice = item.menu_items?.price || 0;
+                              const sizeModifier = item.size_variant?.price_modifier || 0;
+                              const unitPrice = basePrice + sizeModifier;
+                              const addonsPrice = (item.addons || []).reduce((addonSum, addon) => addonSum + addon.price, 0);
+                              return sum + ((unitPrice + addonsPrice) * item.quantity);
+                            }, 0)
                         )
                   }.toFixed(2)
                 </Typography>
@@ -1702,45 +2500,95 @@ export default function AdminPage() {
                   selectedOrder.allTableOrders.flatMap(order => 
                     orderItems
                       .filter(item => item.order_id === order.id)
-                      .map((item, index) => (
-                        <Box key={`${order.id}-${item.id}`} sx={{ mb: 1, display: 'flex', justifyContent: 'space-between' }}>
-                          <Box>
-                            <Typography variant="body2">
-                              {item.quantity}x {item.menu_items?.name || `Item #${item.menu_item_id}`}
-                            </Typography>
+                      .map((item, index) => {
+                        const basePrice = item.menu_items?.price || 0;
+                        const sizeModifier = item.size_variant?.price_modifier || 0;
+                        const unitPrice = basePrice + sizeModifier;
+                        const addonsPrice = (item.addons || []).reduce((sum, addon) => sum + addon.price, 0);
+                        const itemTotal = (unitPrice + addonsPrice) * item.quantity;
+                        
+                        return (
+                          <Box key={`${order.id}-${item.id}`} sx={{ mb: 1.5 }}>
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <Typography variant="body2">
+                                {item.quantity}x {item.menu_items?.name || `Item #${item.menu_item_id}`}
+                              </Typography>
+                              <Typography variant="body2">
+                                R$ {itemTotal.toFixed(2)}
+                              </Typography>
+                            </Box>
+                            
+                            {/* Variação de tamanho */}
+                            {item.size_variant && (
+                              <Typography variant="caption" sx={{ display: 'block', ml: 2, color: 'text.secondary' }}>
+                                {item.size_variant.size_name}
+                                {sizeModifier !== 0 && ` (${sizeModifier > 0 ? '+' : ''}R$ ${sizeModifier.toFixed(2)})`}
+                              </Typography>
+                            )}
+                            
+                            {/* Adicionais */}
+                            {item.addons && item.addons.length > 0 && item.addons.map((addon, addonIndex) => (
+                              <Typography key={addonIndex} variant="caption" sx={{ display: 'block', ml: 2, color: 'text.secondary' }}>
+                                + {addon.name} (R$ {addon.price.toFixed(2)})
+                              </Typography>
+                            ))}
+                            
+                            {/* Observações */}
                             {item.notes && (
-                              <Typography variant="caption" sx={{ display: 'block', ml: 2 }}>
-                                {item.notes}
+                              <Typography variant="caption" sx={{ display: 'block', ml: 2, fontStyle: 'italic' }}>
+                                Obs: {item.notes}
                               </Typography>
                             )}
                           </Box>
-                          <Typography variant="body2">
-                            R$ {((item.menu_items?.price || 0) * item.quantity).toFixed(2)}
-                          </Typography>
-                        </Box>
-                      ))
+                        );
+                      })
                   )
                 ) : (
                   // Mostrar apenas os itens do pedido selecionado (compatibilidade)
                   orderItems
                     .filter(item => item.order_id === selectedOrder.id)
-                    .map((item, index) => (
-                      <Box key={item.id} sx={{ mb: 1, display: 'flex', justifyContent: 'space-between' }}>
-                        <Box>
-                          <Typography variant="body2">
-                            {item.quantity}x {item.menu_items?.name || `Item #${item.menu_item_id}`}
-                          </Typography>
+                    .map((item, index) => {
+                      const basePrice = item.menu_items?.price || 0;
+                      const sizeModifier = item.size_variant?.price_modifier || 0;
+                      const unitPrice = basePrice + sizeModifier;
+                      const addonsPrice = (item.addons || []).reduce((sum, addon) => sum + addon.price, 0);
+                      const itemTotal = (unitPrice + addonsPrice) * item.quantity;
+                      
+                      return (
+                        <Box key={item.id} sx={{ mb: 1.5 }}>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <Typography variant="body2">
+                              {item.quantity}x {item.menu_items?.name || `Item #${item.menu_item_id}`}
+                            </Typography>
+                            <Typography variant="body2">
+                              R$ {itemTotal.toFixed(2)}
+                            </Typography>
+                          </Box>
+                          
+                          {/* Variação de tamanho */}
+                          {item.size_variant && (
+                            <Typography variant="caption" sx={{ display: 'block', ml: 2, color: 'text.secondary' }}>
+                              {item.size_variant.size_name}
+                              {sizeModifier !== 0 && ` (${sizeModifier > 0 ? '+' : ''}R$ ${sizeModifier.toFixed(2)})`}
+                            </Typography>
+                          )}
+                          
+                          {/* Adicionais */}
+                          {item.addons && item.addons.length > 0 && item.addons.map((addon, addonIndex) => (
+                            <Typography key={addonIndex} variant="caption" sx={{ display: 'block', ml: 2, color: 'text.secondary' }}>
+                              + {addon.name} (R$ {addon.price.toFixed(2)})
+                            </Typography>
+                          ))}
+                          
+                          {/* Observações */}
                           {item.notes && (
-                            <Typography variant="caption" sx={{ display: 'block', ml: 2 }}>
-                              {item.notes}
+                            <Typography variant="caption" sx={{ display: 'block', ml: 2, fontStyle: 'italic' }}>
+                              Obs: {item.notes}
                             </Typography>
                           )}
                         </Box>
-                        <Typography variant="body2">
-                          R$ {((item.menu_items?.price || 0) * item.quantity).toFixed(2)}
-                        </Typography>
-                      </Box>
-                    ))
+                      );
+                    })
                 )}
                 
                 <Divider sx={{ my: 2 }} />
@@ -1759,7 +2607,13 @@ export default function AdminPage() {
                               // Para cada pedido, somar o total ou calcular a partir dos itens
                               const orderTotal = order.total || orderItems
                                 .filter(item => item.order_id === order.id)
-                                .reduce((sum, item) => sum + (item.quantity * (item.menu_items?.price || 0)), 0);
+                                .reduce((sum, item) => {
+                                  const basePrice = item.menu_items?.price || 0;
+                                  const sizeModifier = item.size_variant?.price_modifier || 0;
+                                  const unitPrice = basePrice + sizeModifier;
+                                  const addonsPrice = (item.addons || []).reduce((addonSum, addon) => addonSum + addon.price, 0);
+                                  return sum + ((unitPrice + addonsPrice) * item.quantity);
+                                }, 0);
                               return total + Number(orderTotal);
                             }, 0)
                           )
@@ -1767,7 +2621,13 @@ export default function AdminPage() {
                             // Cálculo para um único pedido (compatibilidade)
                             selectedOrder.total || orderItems
                               .filter(item => item.order_id === selectedOrder.id)
-                              .reduce((sum, item) => sum + (item.quantity * (item.menu_items?.price || 0)), 0)
+                              .reduce((sum, item) => {
+                                const basePrice = item.menu_items?.price || 0;
+                                const sizeModifier = item.size_variant?.price_modifier || 0;
+                                const unitPrice = basePrice + sizeModifier;
+                                const addonsPrice = (item.addons || []).reduce((addonSum, addon) => addonSum + addon.price, 0);
+                                return sum + ((unitPrice + addonsPrice) * item.quantity);
+                              }, 0)
                           )
                     }.toFixed(2)
                   </Typography>
@@ -1934,5 +2794,6 @@ export default function AdminPage() {
         </Dialog>
       </Box>
     </Box>
+    </>
   );
 }

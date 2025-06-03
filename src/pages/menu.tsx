@@ -132,11 +132,20 @@ export default function MenuPage() {
       setLoading(true);
       
       // Buscar categorias
-      const { data: categoriesData, error: categoriesError } = await supabase
+      let { data: categoriesData, error: categoriesError } = await supabase
         .from('categories')
         .select('*')
-        .eq('is_active', true)
-        .order('display_order');
+        .order('display_order', { ascending: true });
+      
+      // Se houve erro, tentar sem o order by
+      if (categoriesError) {
+        console.log('Tentando buscar categorias sem ordenação...');
+        const fallbackResult = await supabase
+          .from('categories')
+          .select('*');
+        categoriesData = fallbackResult.data;
+        categoriesError = fallbackResult.error;
+      }
         
       if (categoriesError) {
         console.error('Erro ao buscar categorias:', categoriesError);
@@ -148,8 +157,7 @@ export default function MenuPage() {
       const { data: addonsData, error: addonsError } = await supabase
         .from('addons')
         .select('*')
-        .eq('is_active', true)
-        .order('name');
+        .order('name', { ascending: true });
         
       if (addonsError) {
         console.error('Erro ao buscar adicionais:', addonsError);
@@ -161,8 +169,7 @@ export default function MenuPage() {
       const { data: sizeVariantsData, error: sizeVariantsError } = await supabase
         .from('size_variants')
         .select('*')
-        .eq('is_active', true)
-        .order('price_modifier');
+        .order('price_modifier', { ascending: true });
         
       if (sizeVariantsError) {
         console.error('Erro ao buscar variações de tamanho:', sizeVariantsError);
@@ -334,6 +341,10 @@ export default function MenuPage() {
   // Enviar pedido para a cozinha
   const handleSubmit = async () => {
     try {
+      console.log('=== INÍCIO DA SUBMISSÃO DO PEDIDO ===');
+      console.log('Estado atual do pedido:', order);
+      console.log('Itens do pedido:', Object.values(order));
+      
       // Verificar se há itens no pedido
       if (getTotalItems() === 0) {
         setSnackbar({open: true, message: 'Adicione pelo menos um item ao pedido', severity: 'warning'});
@@ -411,7 +422,8 @@ export default function MenuPage() {
             order_id: orderData.id,
             menu_item_id: Number(menu_item_id),
             quantity: orderItem.quantity,
-            notes: orderItem.notes || null
+            notes: orderItem.notes || null,
+            size_variant_id: orderItem.selected_size_variant || null
           })
           .select()
           .single();
@@ -423,17 +435,29 @@ export default function MenuPage() {
         
         // Adicionar os adicionais do item
         if (orderItem.selected_addons.length > 0) {
+          console.log(`Salvando ${orderItem.selected_addons.length} adicionais para o item ${itemData.id}:`, orderItem.selected_addons);
           const addonPromises = orderItem.selected_addons.map(async (addonId) => {
+            // Buscar informações do addon
+            const addon = addons.find(a => a.id === addonId);
+            if (!addon) {
+              console.error(`Addon ${addonId} não encontrado`);
+              return false;
+            }
+            
             const { error: addonError } = await supabase
               .from('order_item_addons')
               .insert({
                 order_item_id: itemData.id,
-                addon_id: addonId
+                addon_id: addonId,
+                addon_name: addon.name,
+                addon_price: addon.price
               });
               
             if (addonError) {
               console.error(`Erro ao adicionar addon ${addonId} ao item ${menu_item_id}:`, addonError);
               return false;
+            } else {
+              console.log(`Addon ${addonId} (${addon.name}) salvo com sucesso para o item ${itemData.id}`);
             }
             return true;
           });
@@ -441,7 +465,11 @@ export default function MenuPage() {
           const addonResults = await Promise.all(addonPromises);
           if (addonResults.some(result => !result)) {
             console.error(`Alguns adicionais do item ${menu_item_id} não puderam ser salvos`);
+          } else {
+            console.log(`Todos os ${orderItem.selected_addons.length} adicionais do item ${menu_item_id} foram salvos com sucesso`);
           }
+        } else {
+          console.log(`Nenhum adicional selecionado para o item ${menu_item_id}`);
         }
         
         return true;
@@ -611,6 +639,73 @@ export default function MenuPage() {
             </Stack>
           </Box>
         </motion.div>
+        
+        {/* Seção de Categorias */}
+        {categories.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.2, duration: 0.4 }}
+          >
+            <Box 
+              sx={{ 
+                mb: 3, 
+                pb: 1.5,
+                overflowX: 'auto', 
+                scrollbarWidth: 'none',
+                '&::-webkit-scrollbar': { display: 'none' }
+              }}
+            >
+              <Stack 
+                direction="row" 
+                spacing={1.5} 
+                sx={{ 
+                  flexWrap: 'nowrap', 
+                  pb: 1, 
+                  minWidth: 'min-content'
+                }}
+              >
+                <motion.div whileTap={{ scale: 0.95 }}>
+                  <Chip
+                    label="Todos"
+                    color={selectedCategory === null ? 'primary' : 'default'}
+                    onClick={() => setSelectedCategory(null)}
+                    sx={{
+                      px: 1,
+                      fontWeight: 600,
+                      bgcolor: selectedCategory === null ? 'primary.main' : 'rgba(255,255,255,0.2)',
+                      color: selectedCategory === null ? 'white' : 'rgba(255,255,255,0.9)',
+                      backdropFilter: 'blur(10px)',
+                      '&:hover': {
+                        bgcolor: selectedCategory === null ? 'primary.dark' : 'rgba(255,255,255,0.3)',
+                      }
+                    }}
+                  />
+                </motion.div>
+                
+                {categories.sort((a, b) => a.display_order - b.display_order).map((cat) => (
+                  <motion.div key={cat.id} whileTap={{ scale: 0.95 }}>
+                    <Chip
+                      label={cat.name}
+                      color={selectedCategory === cat.id ? 'primary' : 'default'}
+                      onClick={() => setSelectedCategory(cat.id)}
+                      sx={{
+                        px: 1,
+                        fontWeight: 600,
+                        bgcolor: selectedCategory === cat.id ? 'primary.main' : 'rgba(255,255,255,0.2)',
+                        color: selectedCategory === cat.id ? 'white' : 'rgba(255,255,255,0.9)',
+                        backdropFilter: 'blur(10px)',
+                        '&:hover': {
+                          bgcolor: selectedCategory === cat.id ? 'primary.dark' : 'rgba(255,255,255,0.3)',
+                        }
+                      }}
+                    />
+                  </motion.div>
+                ))}
+              </Stack>
+            </Box>
+          </motion.div>
+        )}
 
         {/* Grid de Itens do Menu */}
         <Box sx={{ 
@@ -628,7 +723,9 @@ export default function MenuPage() {
           mx: 'auto'
         }}>
           <AnimatePresence>
-            {menu.map((item, index) => (
+            {menu
+              .filter(item => selectedCategory === null || item.category_id === selectedCategory)
+              .map((item, index) => (
               <motion.div
                 key={item.id}
                 initial={{ opacity: 0, y: 30 }}
@@ -690,7 +787,7 @@ export default function MenuPage() {
                             transition={{ type: "spring", stiffness: 500, damping: 30 }}
                           >
                             <Chip
-                              label={order[item.id]}
+                              label={order[item.id].quantity}
                               color="primary"
                               size="small"
                               sx={{
@@ -817,7 +914,7 @@ export default function MenuPage() {
                             fontSize: '0.9rem'
                           }}
                         >
-                          {order[item.id] || 0}
+                          {order[item.id]?.quantity || 0}
                         </Typography>
                         
                         <motion.div whileTap={{ scale: 0.9 }}>
@@ -923,6 +1020,413 @@ export default function MenuPage() {
       </AnimatePresence>
       
       {/* Snackbar para feedback */}
+      {/* Diálogo para configurar item (adicionais e variações) */}
+      <Dialog 
+        open={itemDialog.open} 
+        onClose={closeItemDialog}
+        fullWidth 
+        maxWidth="sm"
+        sx={{ 
+          '& .MuiDialog-paper': { 
+            borderRadius: 3,
+            boxShadow: '0 12px 40px rgba(0, 0, 0, 0.2)'
+          } 
+        }}
+      >
+        {itemDialog.item && (
+          <>
+            <Box sx={{ position: 'relative' }}>
+              {/* Imagem do Produto */}
+              <Box sx={{ 
+                height: 180, 
+                backgroundImage: `url(${itemDialog.item.image_url || ''})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+                position: 'relative',
+                '&::before': {
+                  content: '""',
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  background: 'linear-gradient(transparent 50%, rgba(0,0,0,0.7))'
+                }
+              }}>
+                {/* Botão Fechar */}
+                <IconButton 
+                  onClick={closeItemDialog}
+                  sx={{ 
+                    position: 'absolute', 
+                    top: 8, 
+                    right: 8,
+                    bgcolor: 'rgba(0,0,0,0.4)',
+                    color: 'white',
+                    '&:hover': { bgcolor: 'rgba(0,0,0,0.6)' }
+                  }}
+                >
+                  <CloseIcon />
+                </IconButton>
+                
+                {/* Informações do Produto */}
+                <Box sx={{ position: 'absolute', bottom: 0, left: 0, right: 0, p: 2 }}>
+                  <Typography variant="h6" sx={{ color: 'white', fontWeight: 700, textShadow: '0 2px 4px rgba(0,0,0,0.5)' }}>
+                    {itemDialog.item.name}
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.9)', textShadow: '0 1px 2px rgba(0,0,0,0.5)' }}>
+                    {itemDialog.item.categories?.name || 'Item do Menu'}
+                  </Typography>
+                </Box>
+              </Box>
+            </Box>
+            
+            <DialogContent sx={{ pt: 3, pb: 1 }}>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                {itemDialog.item.description}
+              </Typography>
+              
+              {/* Seleção de Tamanho */}
+              {(() => {
+                const itemSizeVariants = sizeVariants.filter(sv => sv.menu_item_id === itemDialog.item!.id);
+                
+                if (itemSizeVariants.length > 0) {
+                  return (
+                    <Box sx={{ mb: 3 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.5 }}>
+                        <LocalOfferIcon sx={{ fontSize: 18, mr: 1, color: 'primary.main' }} />
+                        <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                          Selecione o Tamanho:
+                        </Typography>
+                      </Box>
+                      
+                      <Paper variant="outlined" sx={{ borderRadius: 2, p: 0.5 }}>
+                        <FormControl component="fieldset" fullWidth>
+                          <RadioGroup
+                            value={selectedSizeVariant || ''}
+                            onChange={(e) => setSelectedSizeVariant(Number(e.target.value))}
+                          >
+                            {itemSizeVariants.map(size => (
+                              <Paper 
+                                key={size.id}
+                                elevation={selectedSizeVariant === size.id ? 2 : 0}
+                                sx={{ 
+                                  mb: 1, 
+                                  bgcolor: selectedSizeVariant === size.id ? 'primary.soft' : 'transparent',
+                                  border: '1px solid',
+                                  borderColor: selectedSizeVariant === size.id ? 'primary.main' : 'transparent',
+                                  borderRadius: 2,
+                                  transition: 'all 0.2s ease-in-out',
+                                  overflow: 'hidden',
+                                  '&:last-child': { mb: 0 }
+                                }}
+                              >
+                                <FormControlLabel
+                                  value={size.id}
+                                  control={
+                                    <Radio 
+                                      sx={{ 
+                                        color: selectedSizeVariant === size.id ? 'primary.main' : undefined
+                                      }} 
+                                    />
+                                  }
+                                  label={
+                                    <Box sx={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+                                      <Box>
+                                        <Typography variant="body1" fontWeight={selectedSizeVariant === size.id ? 600 : 400}>
+                                          {size.size_name}
+                                        </Typography>
+                                        {size.is_default && (
+                                          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                                            Tamanho padrão
+                                          </Typography>
+                                        )}
+                                      </Box>
+                                      <Chip
+                                        size="small"
+                                        label={size.price_modifier > 0 
+                                          ? `+R$ ${size.price_modifier.toFixed(2)}` 
+                                          : size.price_modifier < 0
+                                            ? `-R$ ${Math.abs(size.price_modifier).toFixed(2)}`
+                                            : 'Preço padrão'}
+                                        color={size.price_modifier > 0 ? "primary" : "default"}
+                                        variant={selectedSizeVariant === size.id ? "filled" : "outlined"}
+                                      />
+                                    </Box>
+                                  }
+                                  sx={{ width: '100%', m: 0, py: 0.5 }}
+                                />
+                              </Paper>
+                            ))}
+                          </RadioGroup>
+                        </FormControl>
+                      </Paper>
+                    </Box>
+                  );
+                }
+                
+                return null;
+              })()}
+              
+              {/* Adicionais */}
+              {addons.length > 0 && (
+                <Box sx={{ mb: 3 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.5 }}>
+                    <RestaurantIcon sx={{ fontSize: 18, mr: 1, color: 'primary.main' }} />
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                      Adicionais Disponíveis:
+                    </Typography>
+                  </Box>
+                  
+                  <Paper variant="outlined" sx={{ borderRadius: 2, p: 0.5 }}>
+                    {addons.map((addon) => (
+                      <Paper
+                        key={addon.id}
+                        elevation={selectedAddons.includes(addon.id) ? 2 : 0}
+                        sx={{ 
+                          mb: 1, 
+                          bgcolor: selectedAddons.includes(addon.id) ? 'primary.soft' : 'transparent',
+                          border: '1px solid',
+                          borderColor: selectedAddons.includes(addon.id) ? 'primary.main' : 'transparent',
+                          borderRadius: 2,
+                          transition: 'all 0.2s ease-in-out',
+                          overflow: 'hidden',
+                          '&:last-child': { mb: 0 }
+                        }}
+                        onClick={() => {
+                          if (selectedAddons.includes(addon.id)) {
+                            setSelectedAddons(prev => prev.filter(id => id !== addon.id));
+                          } else {
+                            setSelectedAddons(prev => [...prev, addon.id]);
+                          }
+                        }}
+                      >
+                        <FormControlLabel
+                          control={
+                            <Checkbox 
+                              checked={selectedAddons.includes(addon.id)}
+                              sx={{ color: selectedAddons.includes(addon.id) ? 'primary.main' : undefined }}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedAddons(prev => [...prev, addon.id]);
+                                } else {
+                                  setSelectedAddons(prev => prev.filter(id => id !== addon.id));
+                                }
+                              }}
+                            />
+                          }
+                          label={
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+                              <Box>
+                                <Typography variant="body1" fontWeight={selectedAddons.includes(addon.id) ? 600 : 400}>
+                                  {addon.name}
+                                </Typography>
+                                {addon.description && (
+                                  <Typography variant="caption" color="text.secondary">
+                                    {addon.description}
+                                  </Typography>
+                                )}
+                              </Box>
+                              <Chip
+                                size="small"
+                                label={`+ R$ ${addon.price.toFixed(2)}`}
+                                color="primary"
+                                variant={selectedAddons.includes(addon.id) ? "filled" : "outlined"}
+                              />
+                            </Box>
+                          }
+                          sx={{ width: '100%', m: 0, py: 0.5 }}
+                        />
+                      </Paper>
+                    ))}
+                  </Paper>
+                  
+                  <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 1 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      Selecione quantos adicionais desejar
+                    </Typography>
+                  </Box>
+                </Box>
+              )}
+              
+              {/* Quantidade */}
+              <Box sx={{ mt: 4, mb: 2 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.5 }}>
+                  <ShoppingCartIcon sx={{ fontSize: 18, mr: 1, color: 'primary.main' }} />
+                  <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                    Quantidade:
+                  </Typography>
+                </Box>
+
+                <Box sx={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center',
+                  borderRadius: 2,
+                  border: '1px solid',
+                  borderColor: 'divider',
+                  p: 1,
+                  width: '100%'
+                }}>
+                  <IconButton 
+                    onClick={() => setQuantity(prev => Math.max(1, prev - 1))} 
+                    size="medium"
+                    sx={{
+                      bgcolor: 'error.soft',
+                      color: 'error.main',
+                      '&:hover': { bgcolor: 'error.main', color: 'white' },
+                      width: 40,
+                      height: 40,
+                      borderRadius: 2,
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    <RemoveIcon />
+                  </IconButton>
+                  
+                  <Typography 
+                    variant="h5" 
+                    sx={{ 
+                      fontWeight: 'bold',
+                      width: 80,
+                      textAlign: 'center'
+                    }}
+                  >
+                    {quantity}
+                  </Typography>
+                  
+                  <IconButton 
+                    onClick={() => setQuantity(prev => prev + 1)} 
+                    size="medium"
+                    sx={{
+                      bgcolor: 'primary.soft',
+                      color: 'primary.main',
+                      '&:hover': { bgcolor: 'primary.main', color: 'white' },
+                      width: 40,
+                      height: 40,
+                      borderRadius: 2,
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    <AddIcon />
+                  </IconButton>
+                </Box>
+              </Box>
+              
+              {/* Subtotal */}
+              <Paper 
+                elevation={3}
+                sx={{ 
+                  mt: 4, 
+                  p: 2, 
+                  borderRadius: 2,
+                  bgcolor: 'primary.soft',
+                  border: '1px solid',
+                  borderColor: 'primary.main'
+                }}
+              >
+                {/* Resumo do preço */}
+                {(() => {
+                  let basePrice = itemDialog.item.price;
+                  let sizePrice = 0;
+                  let addonsPrice = 0;
+                  
+                  // Calcular preço da variação
+                  if (selectedSizeVariant) {
+                    const variant = sizeVariants.find(sv => sv.id === selectedSizeVariant);
+                    if (variant) {
+                      sizePrice = variant.price_modifier;
+                    }
+                  }
+                  
+                  // Calcular preço dos adicionais
+                  addonsPrice = selectedAddons.reduce((sum, addonId) => {
+                    const addon = addons.find(a => a.id === addonId);
+                    return sum + (addon ? addon.price : 0);
+                  }, 0);
+                  
+                  const itemTotal = basePrice + sizePrice + addonsPrice;
+                  const finalTotal = itemTotal * quantity;
+                  
+                  // Mostrar detalhes do preço
+                  return (
+                    <>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                        <Typography variant="body2">Item base:</Typography>
+                        <Typography variant="body2">R$ {basePrice.toFixed(2)}</Typography>
+                      </Box>
+                      
+                      {sizePrice !== 0 && (
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                          <Typography variant="body2">Variação de tamanho:</Typography>
+                          <Typography variant="body2">
+                            {sizePrice > 0 ? '+' : ''}{sizePrice.toFixed(2)}
+                          </Typography>
+                        </Box>
+                      )}
+                      
+                      {addonsPrice > 0 && (
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                          <Typography variant="body2">{selectedAddons.length} adicional(is):</Typography>
+                          <Typography variant="body2">+{addonsPrice.toFixed(2)}</Typography>
+                        </Box>
+                      )}
+                      
+                      {quantity > 1 && (
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                          <Typography variant="body2">Quantidade:</Typography>
+                          <Typography variant="body2">×{quantity}</Typography>
+                        </Box>
+                      )}
+                      
+                      <Divider sx={{ my: 1 }} />
+                      
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                          Total:
+                        </Typography>
+                        <Typography variant="subtitle1" sx={{ fontWeight: 700, color: 'primary.dark' }}>
+                          R$ {finalTotal.toFixed(2)}
+                        </Typography>
+                      </Box>
+                    </>
+                  );
+                })()}
+              </Paper>
+            </DialogContent>
+            
+            <DialogActions sx={{ px: 3, py: 2, bgcolor: 'grey.50' }}>
+              <Button 
+                onClick={closeItemDialog} 
+                color="inherit"
+                variant="outlined"
+                sx={{ borderRadius: 2, px: 3 }}
+              >
+                Cancelar
+              </Button>
+              <Button 
+                variant="contained"
+                onClick={addConfiguredItemToCart}
+                startIcon={<ShoppingCartIcon />}
+                color="primary"
+                sx={{ 
+                  borderRadius: 2, 
+                  px: 3,
+                  py: 1,
+                  boxShadow: 2,
+                  '&:hover': {
+                    boxShadow: 4,
+                    transform: 'translateY(-2px)'
+                  },
+                  transition: 'all 0.2s'
+                }}
+              >
+                Adicionar ao Pedido
+              </Button>
+            </DialogActions>
+          </>
+        )}
+      </Dialog>
+      
       <Snackbar 
         open={snackbar.open} 
         autoHideDuration={6000} 

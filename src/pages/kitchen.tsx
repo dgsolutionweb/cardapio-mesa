@@ -28,7 +28,14 @@ type KitchenOrder = {
   table_id: number;
   status: string;
   created_at: string;
-  items: { id: number; name: string; quantity: number; notes?: string }[];
+  items: { 
+    id: number; 
+    name: string; 
+    quantity: number; 
+    notes?: string;
+    addons?: { id: number, name: string, price: number }[];
+    size_variant?: { id: number, size_name: string, price_modifier: number };
+  }[];
   total?: number;
 };
 
@@ -117,6 +124,52 @@ export default function KitchenPage() {
         }
       }
       
+      // Buscar todos os adicionais dos itens dos pedidos
+      let orderItemAddonMap: Record<number, { id: number, name: string, price: number }[]> = {};
+      if (allOrderItems && allOrderItems.length > 0) {
+        const orderItemIds = allOrderItems.map(item => item.id);
+        console.log('IDs dos itens do pedido para buscar adicionais:', orderItemIds);
+        
+        const { data: orderItemAddons, error: addonsError } = await supabase
+          .from('order_item_addons')
+          .select('order_item_id, addon_id, addon_name, addon_price')
+          .in('order_item_id', orderItemIds);
+          
+        console.log('Resultado da busca de adicionais:', { orderItemAddons, addonsError });
+          
+        if (addonsError) {
+          console.error('Erro ao buscar adicionais dos itens:', addonsError);
+        } else if (orderItemAddons && orderItemAddons.length > 0) {
+          console.log('Adicionais de itens encontrados:', orderItemAddons.length);
+          // Criar mapa de item_id -> [addons]
+          for (const oia of orderItemAddons) {
+            if (!orderItemAddonMap[oia.order_item_id]) {
+              orderItemAddonMap[oia.order_item_id] = [];
+            }
+            orderItemAddonMap[oia.order_item_id].push({
+              id: oia.addon_id,
+              name: oia.addon_name,
+              price: oia.addon_price
+            });
+          }
+        } else {
+          console.log('Nenhum adicional encontrado para os itens:', orderItemIds);
+        }
+      }
+      
+      // Buscar todas as variações de tamanho de uma vez
+      let sizeVariantsData: any[] = [];
+      const { data: sizeVariants, error: sizeVariantsError } = await supabase
+        .from('size_variants')
+        .select('*');
+        
+      if (sizeVariantsError) {
+        console.error('Erro ao buscar variações de tamanho:', sizeVariantsError);
+      } else if (sizeVariants) {
+        sizeVariantsData = sizeVariants;
+        console.log('Variações de tamanho encontradas:', sizeVariantsData.length);
+      }
+      
       // Processar cada pedido
       for (const order of ordersData) {
         // Filtrar os itens deste pedido
@@ -127,11 +180,30 @@ export default function KitchenPage() {
         // Mapear os itens do pedido com informações do menu
         const items = orderItems.map(item => {
           const menuItem = menuItemsData.find(mi => mi.id === item.menu_item_id);
+          
+          // Obter adicionais deste item (já com os dados completos)
+          const itemAddons = orderItemAddonMap[item.id] || [];
+          
+          // Obter variação de tamanho
+          let sizeVariant = null;
+          if (item.size_variant_id) {
+            const sv = sizeVariantsData.find(sv => sv.id === item.size_variant_id);
+            if (sv) {
+              sizeVariant = {
+                id: sv.id,
+                size_name: sv.size_name,
+                price_modifier: sv.price_modifier
+              };
+            }
+          }
+          
           return {
             id: item.id,
             name: menuItem?.name || `Item #${item.menu_item_id}`,
             quantity: item.quantity,
-            notes: item.notes
+            notes: item.notes,
+            addons: itemAddons.length > 0 ? itemAddons : undefined,
+            size_variant: sizeVariant
           };
         });
         
@@ -527,16 +599,48 @@ export default function KitchenPage() {
                             <ListItemText
                               primary={
                                 <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                                  <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                                  <Typography variant="body1" component="span" sx={{ fontWeight: 600 }}>
                                     {item.quantity}x {item.name}
+                                    {item.size_variant && (
+                                      <Chip 
+                                        label={item.size_variant.size_name} 
+                                        size="small" 
+                                        variant="outlined" 
+                                        color="primary"
+                                        sx={{ ml: 1, height: 20 }}
+                                      />
+                                    )}
                                   </Typography>
                                 </Box>
                               }
-                              secondary={item.notes && (
-                                <Typography variant="body2" sx={{ fontStyle: 'italic', mt: 0.5 }}>
-                                  Obs: {item.notes}
-                                </Typography>
-                              )}
+                              secondary={
+                                <>
+                                  {item.notes && (
+                                    <Typography variant="body2" sx={{ fontStyle: 'italic', mt: 0.5 }}>
+                                      Obs: {item.notes}
+                                    </Typography>
+                                  )}
+                                  {/* Adicionais */}
+                                  {item.addons && item.addons.length > 0 && (
+                                    <Box sx={{ mt: 0.5 }}>
+                                      <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 500 }}>
+                                        Adicionais:
+                                      </Typography>
+                                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
+                                        {item.addons.map((addon: any, addonIndex: number) => (
+                                          <Chip
+                                            key={addonIndex}
+                                            label={`${addon.name} (+R$ ${addon.price.toFixed(2)})`}
+                                            size="small"
+                                            variant="outlined"
+                                            color="secondary"
+                                          />
+                                        ))}
+                                      </Box>
+                                    </Box>
+                                  )}
+                                </>
+                              }
                             />
                           </ListItem>
                         ))}
@@ -606,13 +710,23 @@ export default function KitchenPage() {
               
               <Box sx={{ mb: 2 }}>
                 {selectedOrder.items.map((item, idx) => (
-                  <Box key={idx} sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                    <Typography variant="body2">
-                      {item.quantity}x {item.name}
-                    </Typography>
+                  <Box key={idx} sx={{ mb: 1.5 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                        {item.quantity}x {item.name}
+                        {item.size_variant && ` (${item.size_variant.size_name})`}
+                      </Typography>
+                    </Box>
+                    
+                    {item.addons && item.addons.length > 0 && (
+                      <Typography variant="body2" sx={{ fontSize: '0.8rem', ml: 2 }}>
+                        Adicionais: {item.addons.map(addon => addon.name).join(', ')}
+                      </Typography>
+                    )}
+                    
                     {item.notes && (
-                      <Typography variant="body2" sx={{ fontStyle: 'italic', fontSize: '0.8rem' }}>
-                        {item.notes}
+                      <Typography variant="body2" sx={{ fontStyle: 'italic', fontSize: '0.8rem', ml: 2 }}>
+                        Obs: {item.notes}
                       </Typography>
                     )}
                   </Box>
