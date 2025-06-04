@@ -62,6 +62,8 @@ type MenuItem = {
   price: number;
   image_url: string;
   category_id?: number;
+  show_addons?: boolean;
+  show_size_variants?: boolean;
   categories?: {
     id: number;
     name: string;
@@ -1089,7 +1091,8 @@ export default function MenuPage() {
               {(() => {
                 const itemSizeVariants = sizeVariants.filter(sv => sv.menu_item_id === itemDialog.item!.id);
                 
-                if (itemSizeVariants.length > 0) {
+                // Só mostra se o produto tem show_size_variants = true e existem variações
+                if (itemDialog.item!.show_size_variants && itemSizeVariants.length > 0) {
                   return (
                     <Box sx={{ mb: 3 }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.5 }}>
@@ -1168,7 +1171,7 @@ export default function MenuPage() {
               })()}
               
               {/* Adicionais */}
-              {addons.length > 0 && (
+              {itemDialog.item.show_addons && addons.length > 0 && (
                 <Box sx={{ mb: 3 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.5 }}>
                     <RestaurantIcon sx={{ fontSize: 18, mr: 1, color: 'primary.main' }} />

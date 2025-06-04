@@ -71,7 +71,7 @@ export default function AdminPage() {
   const [menu, setMenu] = useState<any[]>([]);
   const [menuDialog, setMenuDialog] = useState(false);
   const [editingMenu, setEditingMenu] = useState<any|null>(null);
-  const [menuForm, setMenuForm] = useState({ name:'', description:'', price:'', image_url:'', category_id:'' });
+  const [menuForm, setMenuForm] = useState({ name:'', description:'', price:'', image_url:'', category_id:'', show_addons: false, show_size_variants: false });
   const [uploadingImage, setUploadingImage] = useState(false);
   const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -104,6 +104,7 @@ export default function AdminPage() {
   const [selectedTable, setSelectedTable] = useState<any|null>(null);
   const [reservationName, setReservationName] = useState('');
   const [paymentDialog, setPaymentDialog] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<'dinheiro' | 'cartao' | 'pix' | ''>('');
   // Feedback visual
   const [snackbar, setSnackbar] = useState<{open:boolean,message:string,severity:'success'|'error'|'info'}>({open:false,message:'',severity:'success'});
   const [loading, setLoading] = useState(false);
@@ -412,8 +413,16 @@ export default function AdminPage() {
   }
   
   // Gerenciamento de pedidos
-  function viewOrderDetails(order: any) {
-    setSelectedOrder(order);
+  function viewOrderDetails(order: any, allTableOrders?: any[]) {
+    if (allTableOrders) {
+      // Se allTableOrders for fornecido, criamos um objeto com todos os pedidos da mesa
+      setSelectedOrder({
+        ...order,
+        allTableOrders: allTableOrders
+      });
+    } else {
+      setSelectedOrder(order);
+    }
   }
   
   function closeOrderDetails() {
@@ -449,6 +458,7 @@ export default function AdminPage() {
   
   function closePaymentDialog() {
     setPaymentDialog(false);
+    setPaymentMethod('');
   }
   
   // Função para imprimir a comanda
@@ -614,13 +624,17 @@ export default function AdminPage() {
     setMenuForm(item ? { 
       ...item, 
       price: String(item.price),
-      category_id: String(item.category_id || '') 
+      category_id: String(item.category_id || ''),
+      show_addons: Boolean(item.show_addons),
+      show_size_variants: Boolean(item.show_size_variants)
     } : { 
       name:'', 
       description:'', 
       price:'', 
       image_url:'', 
-      category_id:'' 
+      category_id:'',
+      show_addons: false,
+      show_size_variants: false
     });
     
     // Limpar dados de adicionais e variações
@@ -673,7 +687,9 @@ export default function AdminPage() {
           description: menuForm.description,
           price: Number(menuForm.price),
           image_url: imageUrl,
-          category_id: menuForm.category_id ? Number(menuForm.category_id) : null
+          category_id: menuForm.category_id ? Number(menuForm.category_id) : null,
+          show_addons: menuForm.show_addons,
+          show_size_variants: menuForm.show_size_variants
         };
         
         console.log('Update data:', updateData);
@@ -694,7 +710,9 @@ export default function AdminPage() {
           description: menuForm.description,
           price: Number(menuForm.price),
           image_url: imageUrl,
-          category_id: menuForm.category_id ? Number(menuForm.category_id) : null
+          category_id: menuForm.category_id ? Number(menuForm.category_id) : null,
+          show_addons: menuForm.show_addons,
+          show_size_variants: menuForm.show_size_variants
         };
         
         console.log('Insert data:', insertData);
@@ -1746,7 +1764,7 @@ export default function AdminPage() {
                                         <Button 
                                           size="small" 
                                           variant="outlined" 
-                                          onClick={() => viewOrderDetails(ordersArray[0])}
+                                          onClick={() => viewOrderDetails(ordersArray[0], ordersArray)}
                                           sx={{ mr: 1 }}
                                         >
                                           Ver Detalhes
@@ -1909,6 +1927,56 @@ export default function AdminPage() {
                         startAdornment: <Typography sx={{ mr: 1 }}>R$</Typography>
                       }}
                     />
+                  </Grid>
+                  
+                  {/* Controles de exibição */}
+                  <Grid size={{ xs: 12 }}>
+                    <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 2 }}>
+                      <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600, color: 'primary.main' }}>
+                        Opções de Personalização
+                      </Typography>
+                      <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+                        <FormControlLabel
+                          control={
+                            <Switch
+                              checked={menuForm.show_addons}
+                              onChange={e => setMenuForm(f => ({...f, show_addons: e.target.checked}))}
+                              color="primary"
+                            />
+                          }
+                          label={
+                            <Box>
+                              <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                                Mostrar Adicionais
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                Cliente pode escolher extras como queijo, bacon, etc.
+                              </Typography>
+                            </Box>
+                          }
+                        />
+                        
+                        <FormControlLabel
+                          control={
+                            <Switch
+                              checked={menuForm.show_size_variants}
+                              onChange={e => setMenuForm(f => ({...f, show_size_variants: e.target.checked}))}
+                              color="primary"
+                            />
+                          }
+                          label={
+                            <Box>
+                              <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                                Mostrar Variações de Tamanho
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                Cliente pode escolher tamanhos como P, M, G
+                              </Typography>
+                            </Box>
+                          }
+                        />
+                      </Box>
+                    </Box>
                   </Grid>
                   <Grid size={{ xs: 12, md: 6 }}>
                     <Box>
@@ -2258,89 +2326,206 @@ export default function AdminPage() {
               </Box>
               
               <Typography variant="subtitle1" sx={{ fontWeight: 'bold', mb: 1 }}>
-                Itens do Pedido:
+                {selectedOrder.allTableOrders ? 'Todos os Pedidos da Mesa:' : 'Itens do Pedido:'}
               </Typography>
               
-              <List>
-                {orderItems
-                  .filter(item => item.order_id === selectedOrder.id)
-                  .map(item => {
-                    // Calcular preço unitário considerando variação de tamanho
-                    const basePrice = item.menu_items?.price || 0;
-                    const sizeModifier = item.size_variant?.price_modifier || 0;
-                    const unitPrice = basePrice + sizeModifier;
+              {/* Verificar se temos múltiplos pedidos */}
+              {selectedOrder.allTableOrders ? (
+                // Mostrar todos os pedidos da mesa separadamente
+                selectedOrder.allTableOrders.map((order, orderIndex) => (
+                  <Box key={order.id} sx={{ mb: 3 }}>
+                    <Typography variant="h6" sx={{ mb: 2, fontWeight: 'bold', color: 'primary.main' }}>
+                      Pedido #{order.id} • {new Date(order.created_at).toLocaleString('pt-BR')}
+                    </Typography>
                     
-                    // Calcular preço dos adicionais
-                    const addonsPrice = (item.addons || []).reduce((sum, addon) => sum + addon.price, 0);
-                    
-                    // Preço total do item (unitário + adicionais) * quantidade
-                    const itemTotal = (unitPrice + addonsPrice) * item.quantity;
-                    
-                    return (
-                      <ListItem key={item.id} sx={{ py: 1, px: 0, borderBottom: '1px solid #eee', flexDirection: 'column', alignItems: 'flex-start' }}>
-                        <Box sx={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                          <Box sx={{ flex: 1 }}>
-                            <Typography variant="body1" sx={{ fontWeight: 'bold' }}>
-                              {item.menu_items?.name || `Item #${item.menu_item_id}`}
-                            </Typography>
-                            
-                            {/* Variação de tamanho */}
-                            {item.size_variant && (
-                              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                                Tamanho: {item.size_variant.size_name} 
-                                {sizeModifier !== 0 && ` (${sizeModifier > 0 ? '+' : ''}R$ ${sizeModifier.toFixed(2)})`}
-                              </Typography>
-                            )}
-                            
-                            {/* Adicionais */}
-                            {item.addons && item.addons.length > 0 && (
-                              <Box sx={{ mt: 0.5 }}>
-                                <Typography variant="body2" color="text.secondary">
-                                  Adicionais:
-                                </Typography>
-                                {item.addons.map((addon, index) => (
-                                  <Typography key={index} variant="body2" color="text.secondary" sx={{ ml: 1 }}>
-                                    • {addon.name} (+R$ {addon.price.toFixed(2)})
-                                  </Typography>
-                                ))}
-                              </Box>
-                            )}
-                            
-                            {/* Observações */}
-                            {item.notes && (
-                              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontStyle: 'italic' }}>
-                                Obs: {item.notes}
-                              </Typography>
-                            )}
-                          </Box>
+                    <List sx={{ ml: 2 }}>
+                      {orderItems
+                        .filter(item => item.order_id === order.id)
+                        .map(item => {
+                          // Calcular preço unitário considerando variação de tamanho
+                          const basePrice = item.menu_items?.price || 0;
+                          const sizeModifier = item.size_variant?.price_modifier || 0;
+                          const unitPrice = basePrice + sizeModifier;
                           
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, ml: 2 }}>
-                            <Typography variant="body2" color="text.secondary">
-                              {item.quantity}x
-                            </Typography>
-                            <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
-                              R$ {itemTotal.toFixed(2)}
-                            </Typography>
+                          // Calcular preço dos adicionais
+                          const addonsPrice = (item.addons || []).reduce((sum, addon) => sum + addon.price, 0);
+                          
+                          // Preço total do item (unitário + adicionais) * quantidade
+                          const itemTotal = (unitPrice + addonsPrice) * item.quantity;
+                          
+                          return (
+                            <ListItem key={item.id} sx={{ py: 1, px: 0, borderBottom: '1px solid #eee', flexDirection: 'column', alignItems: 'flex-start' }}>
+                              <Box sx={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                <Box sx={{ flex: 1 }}>
+                                  <Typography variant="body1" sx={{ fontWeight: 'bold' }}>
+                                    {item.menu_items?.name || `Item #${item.menu_item_id}`}
+                                  </Typography>
+                                  
+                                  {/* Variação de tamanho */}
+                                  {item.size_variant && (
+                                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                                      Tamanho: {item.size_variant.size_name} 
+                                      {sizeModifier !== 0 && ` (${sizeModifier > 0 ? '+' : ''}R$ ${sizeModifier.toFixed(2)})`}
+                                    </Typography>
+                                  )}
+                                  
+                                  {/* Adicionais */}
+                                  {item.addons && item.addons.length > 0 && (
+                                    <Box sx={{ mt: 0.5 }}>
+                                      <Typography variant="body2" color="text.secondary">
+                                        Adicionais:
+                                      </Typography>
+                                      {item.addons.map((addon, index) => (
+                                        <Typography key={index} variant="body2" color="text.secondary" sx={{ ml: 1 }}>
+                                          • {addon.name} (+R$ {addon.price.toFixed(2)})
+                                        </Typography>
+                                      ))}
+                                    </Box>
+                                  )}
+                                  
+                                  {/* Observações */}
+                                  {item.notes && (
+                                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontStyle: 'italic' }}>
+                                      Obs: {item.notes}
+                                    </Typography>
+                                  )}
+                                </Box>
+                                
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, ml: 2 }}>
+                                  <Typography variant="body2" color="text.secondary">
+                                    {item.quantity}x
+                                  </Typography>
+                                  <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                                    R$ {itemTotal.toFixed(2)}
+                                  </Typography>
+                                </Box>
+                              </Box>
+                            </ListItem>
+                          );
+                        })}
+                    </List>
+                    
+                    {/* Total do pedido individual */}
+                    <Box sx={{ mt: 2, p: 1.5, bgcolor: 'grey.50', borderRadius: 1, ml: 2 }}>
+                      <Typography variant="body1" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
+                        Subtotal do Pedido #{order.id}: R$ {
+                          (order.total || orderItems
+                            .filter(item => item.order_id === order.id)
+                            .reduce((sum, item) => {
+                              const basePrice = item.menu_items?.price || 0;
+                              const sizeModifier = item.size_variant?.price_modifier || 0;
+                              const unitPrice = basePrice + sizeModifier;
+                              const addonsPrice = (item.addons || []).reduce((addonSum, addon) => addonSum + addon.price, 0);
+                              return sum + ((unitPrice + addonsPrice) * item.quantity);
+                            }, 0)
+                          ).toFixed(2)
+                        }
+                      </Typography>
+                    </Box>
+                  </Box>
+                ))
+              ) : (
+                // Mostrar apenas o pedido único (compatibilidade)
+                <List>
+                  {orderItems
+                    .filter(item => item.order_id === selectedOrder.id)
+                    .map(item => {
+                      // Calcular preço unitário considerando variação de tamanho
+                      const basePrice = item.menu_items?.price || 0;
+                      const sizeModifier = item.size_variant?.price_modifier || 0;
+                      const unitPrice = basePrice + sizeModifier;
+                      
+                      // Calcular preço dos adicionais
+                      const addonsPrice = (item.addons || []).reduce((sum, addon) => sum + addon.price, 0);
+                      
+                      // Preço total do item (unitário + adicionais) * quantidade
+                      const itemTotal = (unitPrice + addonsPrice) * item.quantity;
+                      
+                      return (
+                        <ListItem key={item.id} sx={{ py: 1, px: 0, borderBottom: '1px solid #eee', flexDirection: 'column', alignItems: 'flex-start' }}>
+                          <Box sx={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <Box sx={{ flex: 1 }}>
+                              <Typography variant="body1" sx={{ fontWeight: 'bold' }}>
+                                {item.menu_items?.name || `Item #${item.menu_item_id}`}
+                              </Typography>
+                              
+                              {/* Variação de tamanho */}
+                              {item.size_variant && (
+                                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                                  Tamanho: {item.size_variant.size_name} 
+                                  {sizeModifier !== 0 && ` (${sizeModifier > 0 ? '+' : ''}R$ ${sizeModifier.toFixed(2)})`}
+                                </Typography>
+                              )}
+                              
+                              {/* Adicionais */}
+                              {item.addons && item.addons.length > 0 && (
+                                <Box sx={{ mt: 0.5 }}>
+                                  <Typography variant="body2" color="text.secondary">
+                                    Adicionais:
+                                  </Typography>
+                                  {item.addons.map((addon, index) => (
+                                    <Typography key={index} variant="body2" color="text.secondary" sx={{ ml: 1 }}>
+                                      • {addon.name} (+R$ {addon.price.toFixed(2)})
+                                    </Typography>
+                                  ))}
+                                </Box>
+                              )}
+                              
+                              {/* Observações */}
+                              {item.notes && (
+                                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontStyle: 'italic' }}>
+                                  Obs: {item.notes}
+                                </Typography>
+                              )}
+                            </Box>
+                            
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, ml: 2 }}>
+                              <Typography variant="body2" color="text.secondary">
+                                {item.quantity}x
+                              </Typography>
+                              <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                                R$ {itemTotal.toFixed(2)}
+                              </Typography>
+                            </Box>
                           </Box>
-                        </Box>
-                      </ListItem>
-                    );
-                  })}
-              </List>
-              
+                        </ListItem>
+                      );
+                    })}
+                </List>
+              )}
               <Box sx={{ mt: 3, p: 2, bgcolor: 'grey.100', borderRadius: 2 }}>
                 <Typography variant="h6" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
-                  Total: R$ {
-                    (selectedOrder.total || orderItems
-                      .filter(item => item.order_id === selectedOrder.id)
-                      .reduce((sum, item) => {
-                        const basePrice = item.menu_items?.price || 0;
-                        const sizeModifier = item.size_variant?.price_modifier || 0;
-                        const unitPrice = basePrice + sizeModifier;
-                        const addonsPrice = (item.addons || []).reduce((addonSum, addon) => addonSum + addon.price, 0);
-                        return sum + ((unitPrice + addonsPrice) * item.quantity);
-                      }, 0)
-                    ).toFixed(2)
+                  Total {selectedOrder.allTableOrders ? 'da Mesa' : 'do Pedido'}: R$ {
+                    (() => {
+                      if (selectedOrder.allTableOrders) {
+                        // Calcular o total de todos os pedidos da mesa
+                        const total = selectedOrder.allTableOrders.reduce((total, order) => {
+                          const orderTotal = order.total || orderItems
+                            .filter(item => item.order_id === order.id)
+                            .reduce((sum, item) => {
+                              const basePrice = item.menu_items?.price || 0;
+                              const sizeModifier = item.size_variant?.price_modifier || 0;
+                              const unitPrice = basePrice + sizeModifier;
+                              const addonsPrice = (item.addons || []).reduce((addonSum, addon) => addonSum + addon.price, 0);
+                              return sum + ((unitPrice + addonsPrice) * item.quantity);
+                            }, 0);
+                          return total + Number(orderTotal);
+                        }, 0);
+                        return total.toFixed(2);
+                      } else {
+                        // Cálculo para um único pedido
+                        const total = selectedOrder.total || orderItems
+                          .filter(item => item.order_id === selectedOrder.id)
+                          .reduce((sum, item) => {
+                            const basePrice = item.menu_items?.price || 0;
+                            const sizeModifier = item.size_variant?.price_modifier || 0;
+                            const unitPrice = basePrice + sizeModifier;
+                            const addonsPrice = (item.addons || []).reduce((addonSum, addon) => addonSum + addon.price, 0);
+                            return sum + ((unitPrice + addonsPrice) * item.quantity);
+                          }, 0);
+                        return total.toFixed(2);
+                      }
+                    })()
                   }
                 </Typography>
               </Box>
@@ -2351,7 +2536,13 @@ export default function AdminPage() {
                 variant="contained" 
                 color="primary" 
                 startIcon={<PaymentIcon />}
-                onClick={() => openPaymentDialog(selectedOrder)}
+                onClick={() => {
+                  if (selectedOrder.allTableOrders) {
+                    openPaymentDialog(selectedOrder, selectedOrder.allTableOrders);
+                  } else {
+                    openPaymentDialog(selectedOrder);
+                  }
+                }}
               >
                 Pagamento
               </Button>
@@ -2379,63 +2570,145 @@ export default function AdminPage() {
                 </Typography>
                 <Typography variant="h5" sx={{ fontWeight: 'bold' }}>
                   Total: R$ {
-                    // Verificar se temos pedidos agrupados
-                    selectedOrder.allTableOrders
-                      ? (
-                          // Calcular o total de todos os pedidos da mesa
-                          selectedOrder.allTableOrders.reduce((total, order) => {
-                            // Para cada pedido, somar o total ou calcular a partir dos itens
-                            const orderTotal = order.total || orderItems
-                              .filter(item => item.order_id === order.id)
-                              .reduce((sum, item) => {
-                                const basePrice = item.menu_items?.price || 0;
-                                const sizeModifier = item.size_variant?.price_modifier || 0;
-                                const unitPrice = basePrice + sizeModifier;
-                                const addonsPrice = (item.addons || []).reduce((addonSum, addon) => addonSum + addon.price, 0);
-                                return sum + ((unitPrice + addonsPrice) * item.quantity);
-                              }, 0);
-                            return total + Number(orderTotal);
-                          }, 0)
-                        )
-                      : (
-                          // Cálculo para um único pedido (compatibilidade)
-                          selectedOrder.total || orderItems
-                            .filter(item => item.order_id === selectedOrder.id)
+                    (() => {
+                      if (selectedOrder.allTableOrders) {
+                        // Calcular o total de todos os pedidos da mesa
+                        const total = selectedOrder.allTableOrders.reduce((total, order) => {
+                          const orderTotal = order.total || orderItems
+                            .filter(item => item.order_id === order.id)
                             .reduce((sum, item) => {
                               const basePrice = item.menu_items?.price || 0;
                               const sizeModifier = item.size_variant?.price_modifier || 0;
                               const unitPrice = basePrice + sizeModifier;
                               const addonsPrice = (item.addons || []).reduce((addonSum, addon) => addonSum + addon.price, 0);
                               return sum + ((unitPrice + addonsPrice) * item.quantity);
-                            }, 0)
-                        )
-                  }.toFixed(2)
+                            }, 0);
+                          return total + Number(orderTotal);
+                        }, 0);
+                        return total.toFixed(2);
+                      } else {
+                        // Cálculo para um único pedido
+                        const total = selectedOrder.total || orderItems
+                          .filter(item => item.order_id === selectedOrder.id)
+                          .reduce((sum, item) => {
+                            const basePrice = item.menu_items?.price || 0;
+                            const sizeModifier = item.size_variant?.price_modifier || 0;
+                            const unitPrice = basePrice + sizeModifier;
+                            const addonsPrice = (item.addons || []).reduce((addonSum, addon) => addonSum + addon.price, 0);
+                            return sum + ((unitPrice + addonsPrice) * item.quantity);
+                          }, 0);
+                        return total.toFixed(2);
+                      }
+                    })()
+                  }
                 </Typography>
               </Box>
               
               <Typography variant="body1" sx={{ mb: 3 }}>
-                Confirme o recebimento do pagamento para finalizar este pedido, imprimir a comanda e liberar a mesa (se não houver outros pedidos ativos para ela).
+                Selecione a forma de pagamento e confirme o recebimento para finalizar este pedido, imprimir a comanda e liberar a mesa.
               </Typography>
               
-              <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, mb: 2 }}>
+              <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 'bold' }}>
+                Forma de Pagamento:
+              </Typography>
+              
+              <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, mb: 3 }}>
                 <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                  <Card sx={{ p: 2, width: 100, textAlign: 'center', boxShadow: 2, borderRadius: 2 }}>
-                    <Typography variant="body2" color="text.secondary">Forma de Pagamento</Typography>
-                    <Typography variant="body1" sx={{ fontWeight: 'bold', mt: 1 }}>Dinheiro</Typography>
+                  <Card 
+                    sx={{ 
+                      p: 2, 
+                      width: 100, 
+                      textAlign: 'center', 
+                      boxShadow: paymentMethod === 'dinheiro' ? 4 : 2, 
+                      borderRadius: 2,
+                      border: paymentMethod === 'dinheiro' ? '2px solid #4caf50' : '1px solid #e0e0e0',
+                      cursor: 'pointer',
+                      bgcolor: paymentMethod === 'dinheiro' ? 'success.light' : 'background.paper'
+                    }}
+                    onClick={() => setPaymentMethod('dinheiro')}
+                  >
+                    <Typography 
+                      variant="body2" 
+                      color={paymentMethod === 'dinheiro' ? 'white' : 'text.secondary'}
+                    >
+                      Forma de Pagamento
+                    </Typography>
+                    <Typography 
+                      variant="body1" 
+                      sx={{ 
+                        fontWeight: 'bold', 
+                        mt: 1,
+                        color: paymentMethod === 'dinheiro' ? 'white' : 'text.primary'
+                      }}
+                    >
+                      Dinheiro
+                    </Typography>
                   </Card>
                 </motion.div>
                 
                 <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                  <Card sx={{ p: 2, width: 100, textAlign: 'center', boxShadow: 2, borderRadius: 2 }}>
-                    <Typography variant="body2" color="text.secondary">Forma de Pagamento</Typography>
-                    <Typography variant="body1" sx={{ fontWeight: 'bold', mt: 1 }}>Cartão</Typography>
+                  <Card 
+                    sx={{ 
+                      p: 2, 
+                      width: 100, 
+                      textAlign: 'center', 
+                      boxShadow: paymentMethod === 'cartao' ? 4 : 2, 
+                      borderRadius: 2,
+                      border: paymentMethod === 'cartao' ? '2px solid #4caf50' : '1px solid #e0e0e0',
+                      cursor: 'pointer',
+                      bgcolor: paymentMethod === 'cartao' ? 'success.light' : 'background.paper'
+                    }}
+                    onClick={() => setPaymentMethod('cartao')}
+                  >
+                    <Typography 
+                      variant="body2" 
+                      color={paymentMethod === 'cartao' ? 'white' : 'text.secondary'}
+                    >
+                      Forma de Pagamento
+                    </Typography>
+                    <Typography 
+                      variant="body1" 
+                      sx={{ 
+                        fontWeight: 'bold', 
+                        mt: 1,
+                        color: paymentMethod === 'cartao' ? 'white' : 'text.primary'
+                      }}
+                    >
+                      Cartão
+                    </Typography>
                   </Card>
                 </motion.div>
                 
                 <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                  <Card sx={{ p: 2, width: 100, textAlign: 'center', boxShadow: 2, borderRadius: 2 }}>
-                    <Typography variant="body2" color="text.secondary">Forma de Pagamento</Typography>
-                    <Typography variant="body1" sx={{ fontWeight: 'bold', mt: 1 }}>Pix</Typography>
+                  <Card 
+                    sx={{ 
+                      p: 2, 
+                      width: 100, 
+                      textAlign: 'center', 
+                      boxShadow: paymentMethod === 'pix' ? 4 : 2, 
+                      borderRadius: 2,
+                      border: paymentMethod === 'pix' ? '2px solid #4caf50' : '1px solid #e0e0e0',
+                      cursor: 'pointer',
+                      bgcolor: paymentMethod === 'pix' ? 'success.light' : 'background.paper'
+                    }}
+                    onClick={() => setPaymentMethod('pix')}
+                  >
+                    <Typography 
+                      variant="body2" 
+                      color={paymentMethod === 'pix' ? 'white' : 'text.secondary'}
+                    >
+                      Forma de Pagamento
+                    </Typography>
+                    <Typography 
+                      variant="body1" 
+                      sx={{ 
+                        fontWeight: 'bold', 
+                        mt: 1,
+                        color: paymentMethod === 'pix' ? 'white' : 'text.primary'
+                      }}
+                    >
+                      Pix
+                    </Typography>
                   </Card>
                 </motion.div>
               </Box>
@@ -2447,7 +2720,7 @@ export default function AdminPage() {
                 color="success" 
                 startIcon={printingOrder ? <CircularProgress size={20} color="inherit" /> : <PrintIcon />}
                 onClick={completeOrder}
-                disabled={printingOrder}
+                disabled={printingOrder || !paymentMethod}
               >
                 {printingOrder ? 'Imprimindo...' : 'Imprimir e Finalizar'}
               </Button>
@@ -2459,47 +2732,132 @@ export default function AdminPage() {
       {/* Componente oculto para impressão */}
       <div style={{ display: 'none' }}>
         <div ref={printComponentRef}>
-          <Paper sx={{ p: 3, maxWidth: '80mm', margin: '0 auto' }}>
-            <Box sx={{ textAlign: 'center', mb: 2 }}>
-              <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
-                Restaurante QR Menu
-              </Typography>
-              <Typography variant="body2">
+          <div style={{ 
+            width: '80mm', 
+            margin: '0 auto', 
+            padding: '10px', 
+            fontFamily: 'monospace',
+            fontSize: '12px',
+            lineHeight: '1.2'
+          }}>
+            {/* Cabeçalho */}
+            <div style={{ textAlign: 'center', marginBottom: '15px' }}>
+              <div style={{ fontSize: '16px', fontWeight: 'bold', marginBottom: '5px' }}>
+                RESTAURANTE QR MENU
+              </div>
+              <div style={{ fontSize: '10px', marginBottom: '2px' }}>
+                Rua das Flores, 123 - Centro
+              </div>
+              <div style={{ fontSize: '10px', marginBottom: '2px' }}>
+                Tel: (11) 9999-9999
+              </div>
+              <div style={{ fontSize: '10px', marginBottom: '2px' }}>
                 CNPJ: 00.000.000/0001-00
-              </Typography>
-              <Typography variant="body2">
-                {new Date().toLocaleDateString('pt-BR')}
-              </Typography>
-            </Box>
+              </div>
+            </div>
             
-            <Divider sx={{ mb: 2 }} />
+            <div style={{ borderTop: '1px dashed #000', margin: '10px 0' }}></div>
             
             {selectedOrder && (
               <>
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>
-                    COMANDA - MESA {tables.find(t => t.id === selectedOrder.table_id)?.number || selectedOrder.table_id}
-                  </Typography>
-                  <Typography variant="body2">
-                    Pedido #{selectedOrder.id}
-                  </Typography>
-                  <Typography variant="body2">
-                    {new Date(selectedOrder.created_at).toLocaleString('pt-BR')}
-                  </Typography>
-                </Box>
+                {/* Informações do pedido */}
+                <div style={{ marginBottom: '15px' }}>
+                  <div style={{ fontSize: '14px', fontWeight: 'bold', textAlign: 'center', marginBottom: '5px' }}>
+                    COMANDA
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                    <span>Mesa:</span>
+                    <span style={{ fontWeight: 'bold' }}>
+                      {tables.find(t => t.id === selectedOrder.table_id)?.number || selectedOrder.table_id}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                    <span>Data:</span>
+                    <span>{new Date().toLocaleDateString('pt-BR')}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                    <span>Hora:</span>
+                    <span>{new Date().toLocaleTimeString('pt-BR')}</span>
+                  </div>
+                  {selectedOrder.allTableOrders && selectedOrder.allTableOrders.length > 1 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                      <span>Pedidos:</span>
+                      <span>#{selectedOrder.allTableOrders.map(o => o.id).join(', #')}</span>
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                    <span>Pagamento:</span>
+                    <span style={{ fontWeight: 'bold', textTransform: 'capitalize' }}>{paymentMethod}</span>
+                  </div>
+                </div>
                 
-                <Divider sx={{ mb: 2 }} />
+                <div style={{ borderTop: '1px dashed #000', margin: '10px 0' }}></div>
                 
-                <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1 }}>
-                  ITENS
-                </Typography>
-                
-                {/* Verificar se temos pedidos agrupados */}
-                {selectedOrder.allTableOrders ? (
-                  // Mostrar todos os itens de todos os pedidos da mesa
-                  selectedOrder.allTableOrders.flatMap(order => 
+                {/* Itens */}
+                <div style={{ marginBottom: '15px' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 'bold', marginBottom: '8px' }}>
+                    ITENS DO PEDIDO
+                  </div>
+                  
+                  {selectedOrder.allTableOrders ? (
+                    // Mostrar todos os pedidos agrupados
+                    selectedOrder.allTableOrders.map((order, orderIndex) => (
+                      <div key={order.id} style={{ marginBottom: '10px' }}>
+                        {selectedOrder.allTableOrders.length > 1 && (
+                          <div style={{ fontSize: '10px', fontWeight: 'bold', marginBottom: '5px', color: '#666' }}>
+                            PEDIDO #{order.id} - {new Date(order.created_at).toLocaleString('pt-BR')}
+                          </div>
+                        )}
+                        {orderItems
+                          .filter(item => item.order_id === order.id)
+                          .map((item, index) => {
+                            const basePrice = item.menu_items?.price || 0;
+                            const sizeModifier = item.size_variant?.price_modifier || 0;
+                            const unitPrice = basePrice + sizeModifier;
+                            const addonsPrice = (item.addons || []).reduce((sum, addon) => sum + addon.price, 0);
+                            const itemTotal = (unitPrice + addonsPrice) * item.quantity;
+                            
+                            return (
+                              <div key={item.id} style={{ marginBottom: '8px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                  <span style={{ fontSize: '11px' }}>
+                                    {item.quantity}x {item.menu_items?.name || `Item #${item.menu_item_id}`}
+                                  </span>
+                                  <span style={{ fontSize: '11px', fontWeight: 'bold' }}>
+                                    R$ {itemTotal.toFixed(2)}
+                                  </span>
+                                </div>
+                                
+                                {/* Variação de tamanho */}
+                                {item.size_variant && (
+                                  <div style={{ fontSize: '9px', marginLeft: '10px', color: '#666' }}>
+                                    Tamanho: {item.size_variant.size_name}
+                                    {sizeModifier !== 0 && ` (${sizeModifier > 0 ? '+' : ''}R$ ${sizeModifier.toFixed(2)})`}
+                                  </div>
+                                )}
+                                
+                                {/* Adicionais */}
+                                {item.addons && item.addons.length > 0 && item.addons.map((addon, addonIndex) => (
+                                  <div key={addonIndex} style={{ fontSize: '9px', marginLeft: '10px', color: '#666' }}>
+                                    + {addon.name} (R$ {addon.price.toFixed(2)})
+                                  </div>
+                                ))}
+                                
+                                {/* Observações */}
+                                {item.notes && (
+                                  <div style={{ fontSize: '9px', marginLeft: '10px', fontStyle: 'italic', color: '#666' }}>
+                                    Obs: {item.notes}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                      </div>
+                    ))
+                  ) : (
+                    // Mostrar pedido único
                     orderItems
-                      .filter(item => item.order_id === order.id)
+                      .filter(item => item.order_id === selectedOrder.id)
                       .map((item, index) => {
                         const basePrice = item.menu_items?.price || 0;
                         const sizeModifier = item.size_variant?.price_modifier || 0;
@@ -2508,103 +2866,54 @@ export default function AdminPage() {
                         const itemTotal = (unitPrice + addonsPrice) * item.quantity;
                         
                         return (
-                          <Box key={`${order.id}-${item.id}`} sx={{ mb: 1.5 }}>
-                            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                              <Typography variant="body2">
+                          <div key={item.id} style={{ marginBottom: '8px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span style={{ fontSize: '11px' }}>
                                 {item.quantity}x {item.menu_items?.name || `Item #${item.menu_item_id}`}
-                              </Typography>
-                              <Typography variant="body2">
+                              </span>
+                              <span style={{ fontSize: '11px', fontWeight: 'bold' }}>
                                 R$ {itemTotal.toFixed(2)}
-                              </Typography>
-                            </Box>
+                              </span>
+                            </div>
                             
                             {/* Variação de tamanho */}
                             {item.size_variant && (
-                              <Typography variant="caption" sx={{ display: 'block', ml: 2, color: 'text.secondary' }}>
-                                {item.size_variant.size_name}
+                              <div style={{ fontSize: '9px', marginLeft: '10px', color: '#666' }}>
+                                Tamanho: {item.size_variant.size_name}
                                 {sizeModifier !== 0 && ` (${sizeModifier > 0 ? '+' : ''}R$ ${sizeModifier.toFixed(2)})`}
-                              </Typography>
+                              </div>
                             )}
                             
                             {/* Adicionais */}
                             {item.addons && item.addons.length > 0 && item.addons.map((addon, addonIndex) => (
-                              <Typography key={addonIndex} variant="caption" sx={{ display: 'block', ml: 2, color: 'text.secondary' }}>
+                              <div key={addonIndex} style={{ fontSize: '9px', marginLeft: '10px', color: '#666' }}>
                                 + {addon.name} (R$ {addon.price.toFixed(2)})
-                              </Typography>
+                              </div>
                             ))}
                             
                             {/* Observações */}
                             {item.notes && (
-                              <Typography variant="caption" sx={{ display: 'block', ml: 2, fontStyle: 'italic' }}>
+                              <div style={{ fontSize: '9px', marginLeft: '10px', fontStyle: 'italic', color: '#666' }}>
                                 Obs: {item.notes}
-                              </Typography>
+                              </div>
                             )}
-                          </Box>
+                          </div>
                         );
                       })
-                  )
-                ) : (
-                  // Mostrar apenas os itens do pedido selecionado (compatibilidade)
-                  orderItems
-                    .filter(item => item.order_id === selectedOrder.id)
-                    .map((item, index) => {
-                      const basePrice = item.menu_items?.price || 0;
-                      const sizeModifier = item.size_variant?.price_modifier || 0;
-                      const unitPrice = basePrice + sizeModifier;
-                      const addonsPrice = (item.addons || []).reduce((sum, addon) => sum + addon.price, 0);
-                      const itemTotal = (unitPrice + addonsPrice) * item.quantity;
-                      
-                      return (
-                        <Box key={item.id} sx={{ mb: 1.5 }}>
-                          <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                            <Typography variant="body2">
-                              {item.quantity}x {item.menu_items?.name || `Item #${item.menu_item_id}`}
-                            </Typography>
-                            <Typography variant="body2">
-                              R$ {itemTotal.toFixed(2)}
-                            </Typography>
-                          </Box>
-                          
-                          {/* Variação de tamanho */}
-                          {item.size_variant && (
-                            <Typography variant="caption" sx={{ display: 'block', ml: 2, color: 'text.secondary' }}>
-                              {item.size_variant.size_name}
-                              {sizeModifier !== 0 && ` (${sizeModifier > 0 ? '+' : ''}R$ ${sizeModifier.toFixed(2)})`}
-                            </Typography>
-                          )}
-                          
-                          {/* Adicionais */}
-                          {item.addons && item.addons.length > 0 && item.addons.map((addon, addonIndex) => (
-                            <Typography key={addonIndex} variant="caption" sx={{ display: 'block', ml: 2, color: 'text.secondary' }}>
-                              + {addon.name} (R$ {addon.price.toFixed(2)})
-                            </Typography>
-                          ))}
-                          
-                          {/* Observações */}
-                          {item.notes && (
-                            <Typography variant="caption" sx={{ display: 'block', ml: 2, fontStyle: 'italic' }}>
-                              Obs: {item.notes}
-                            </Typography>
-                          )}
-                        </Box>
-                      );
-                    })
-                )}
+                  )}
+                </div>
                 
-                <Divider sx={{ my: 2 }} />
+                <div style={{ borderTop: '1px dashed #000', margin: '10px 0' }}></div>
                 
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
-                    TOTAL
-                  </Typography>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
-                    R$ {
-                      // Verificar se temos pedidos agrupados
-                      selectedOrder.allTableOrders
-                        ? (
-                            // Calcular o total de todos os pedidos da mesa
-                            selectedOrder.allTableOrders.reduce((total, order) => {
-                              // Para cada pedido, somar o total ou calcular a partir dos itens
+                {/* Total */}
+                <div style={{ marginBottom: '15px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', fontWeight: 'bold' }}>
+                    <span>TOTAL:</span>
+                    <span>
+                      R$ {
+                        (() => {
+                          if (selectedOrder.allTableOrders) {
+                            const total = selectedOrder.allTableOrders.reduce((total, order) => {
                               const orderTotal = order.total || orderItems
                                 .filter(item => item.order_id === order.id)
                                 .reduce((sum, item) => {
@@ -2615,11 +2924,10 @@ export default function AdminPage() {
                                   return sum + ((unitPrice + addonsPrice) * item.quantity);
                                 }, 0);
                               return total + Number(orderTotal);
-                            }, 0)
-                          )
-                        : (
-                            // Cálculo para um único pedido (compatibilidade)
-                            selectedOrder.total || orderItems
+                            }, 0);
+                            return total.toFixed(2);
+                          } else {
+                            const total = selectedOrder.total || orderItems
                               .filter(item => item.order_id === selectedOrder.id)
                               .reduce((sum, item) => {
                                 const basePrice = item.menu_items?.price || 0;
@@ -2627,25 +2935,38 @@ export default function AdminPage() {
                                 const unitPrice = basePrice + sizeModifier;
                                 const addonsPrice = (item.addons || []).reduce((addonSum, addon) => addonSum + addon.price, 0);
                                 return sum + ((unitPrice + addonsPrice) * item.quantity);
-                              }, 0)
-                          )
-                    }.toFixed(2)
-                  </Typography>
-                </Box>
+                              }, 0);
+                            return total.toFixed(2);
+                          }
+                        })()
+                      }
+                    </span>
+                  </div>
+                </div>
                 
-                <Divider sx={{ my: 2 }} />
+                <div style={{ borderTop: '1px dashed #000', margin: '10px 0' }}></div>
                 
-                <Box sx={{ textAlign: 'center', mt: 3 }}>
-                  <Typography variant="body2">
+                {/* Rodapé */}
+                <div style={{ textAlign: 'center', marginTop: '15px' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 'bold', marginBottom: '5px' }}>
                     Obrigado pela preferência!
-                  </Typography>
-                  <Typography variant="caption" sx={{ display: 'block', mt: 1 }}>
+                  </div>
+                  <div style={{ fontSize: '10px', marginBottom: '2px' }}>
+                    Volte sempre!
+                  </div>
+                  <div style={{ fontSize: '9px', marginTop: '10px' }}>
                     www.restauranteqrmenu.com.br
-                  </Typography>
-                </Box>
+                  </div>
+                  <div style={{ fontSize: '9px', marginTop: '5px' }}>
+                    Sistema QR Menu Digital
+                  </div>
+                </div>
+                
+                {/* Espaço para corte */}
+                <div style={{ height: '20px' }}></div>
               </>
             )}
-          </Paper>
+          </div>
         </div>
       </div>
         {/* Snackbar feedback */}
