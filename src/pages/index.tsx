@@ -146,7 +146,7 @@ export default function LoginPage() {
                     mb: 1
                   }}
                 >
-                  QR Menu
+                  C&D Menu
                 </Typography>
                 <Typography variant="body1" color="text.secondary">
                   Sistema de Cardápio Digital

@@ -1,13 +1,6 @@
 {
   "/_app": "pages/_app.js",
   "/_error": "pages/_error.js",
-  "/admin/reports": "pages/admin/reports.html",
-  "/admin/settings": "pages/admin/settings.html",
-  "/admin": "pages/admin.html",
-  "/": "pages/index.html",
-  "/kitchen": "pages/kitchen.html",
-  "/menu": "pages/menu.html",
-  "/reports": "pages/reports.html",
   "/_document": "pages/_document.js",
-  "/404": "pages/404.html"
+  "/": "pages/index.js"
 }
