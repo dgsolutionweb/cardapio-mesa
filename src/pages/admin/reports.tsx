@@ -105,6 +105,18 @@ export default function Reports() {
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
 
+  // Verificar autenticação
+  useEffect(() => {
+    const checkAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        router.push('/');
+        return;
+      }
+    };
+    checkAuth();
+  }, [router]);
+
   useEffect(() => {
     loadStats();
   }, [dateRange, startDate, endDate]);

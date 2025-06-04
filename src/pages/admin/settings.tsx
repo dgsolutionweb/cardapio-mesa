@@ -127,6 +127,17 @@ export default function Settings() {
     loadSettings();
   }, []);
 
+  useEffect(() => {
+    const checkAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        router.push('/');
+        return;
+      }
+    };
+    checkAuth();
+  }, [router]);
+
   const loadSettings = async () => {
     try {
       setLoading(true);
@@ -389,7 +400,7 @@ export default function Settings() {
             {/* Tab 1: Informações Gerais */}
             <TabPanel value={tabValue} index={0}>
               <Grid container spacing={3}>
-                <Grid size={{ xs: 12, md: 6 }}>
+                <Grid size={{ xs: 12 }}>
                   <Card sx={{ p: 3, borderRadius: 2 }}>
                     <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
                       <StoreIcon sx={{ mr: 1 }} />

@@ -67,6 +67,19 @@ const GlobalStyles = () => (
 
 export default function AdminPage() {
   const router = useRouter();
+  
+  // Verificar autenticação
+  useEffect(() => {
+    const checkAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        router.push('/');
+        return;
+      }
+    };
+    checkAuth();
+  }, [router]);
+
   // Mesas
   const [tables, setTables] = useState<{id:number,number:number,status:string}[]>([]);
   const [newTable, setNewTable] = useState('');
@@ -1361,6 +1374,55 @@ export default function AdminPage() {
               </ListItemButton>
             </ListItem>
           </motion.div>
+          
+          {/* Botão de Logout */}
+          <motion.div
+            initial={{ x: -50, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            transition={{ delay: 0.5, duration: 0.3 }}
+          >
+            <Divider sx={{ my: 2, backgroundColor: 'rgba(255,255,255,0.1)' }} />
+            <ListItem disablePadding>
+              <ListItemButton 
+                onClick={async () => {
+                  await supabase.auth.signOut();
+                  router.push('/');
+                }}
+                sx={{
+                  borderRadius: 4,
+                  py: 2,
+                  px: 3,
+                  background: 'rgba(255,255,255,0.1)',
+                  backdropFilter: 'blur(15px)',
+                  border: '2px solid rgba(255,255,255,0.2)',
+                  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                  '&:hover': {
+                    background: 'rgba(255,255,255,0.2)',
+                    transform: 'translateX(8px) scale(1.02)',
+                    border: '2px solid rgba(255,255,255,0.3)',
+                    boxShadow: '0 8px 25px rgba(0,0,0,0.15)'
+                  }
+                }}
+              >
+                <ListItemIcon sx={{ minWidth: 48 }}>
+                  <ArrowBackIcon sx={{ 
+                    color: 'white', 
+                    fontSize: 28,
+                    transition: 'all 0.3s ease'
+                  }} />
+                </ListItemIcon>
+                <ListItemText 
+                  primary="Sair" 
+                  primaryTypographyProps={{
+                    fontWeight: 600,
+                    color: 'white',
+                    fontSize: '1rem',
+                    letterSpacing: 0.5
+                  }}
+                />
+              </ListItemButton>
+            </ListItem>
+          </motion.div>
         </List>
       </Box>
       
@@ -2488,7 +2550,7 @@ export default function AdminPage() {
                 <List>
                   {orderItems
                     .filter(item => item.order_id === selectedOrder.id)
-                    .map(item => {
+                    .map((item, index) => {
                       // Calcular preço unitário considerando variação de tamanho
                       const basePrice = item.menu_items?.price || 0;
                       const sizeModifier = item.size_variant?.price_modifier || 0;
@@ -2832,11 +2894,11 @@ export default function AdminPage() {
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
                     <span>Data:</span>
-                    <span>{new Date().toLocaleDateString('pt-BR')}</span>
+                    <span>{new Date(selectedOrder.created_at).toLocaleDateString('pt-BR')}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
                     <span>Hora:</span>
-                    <span>{new Date().toLocaleTimeString('pt-BR')}</span>
+                    <span>{new Date(selectedOrder.created_at).toLocaleTimeString('pt-BR')}</span>
                   </div>
                   {selectedOrder.allTableOrders && selectedOrder.allTableOrders.length > 1 && (
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
@@ -2859,7 +2921,7 @@ export default function AdminPage() {
                   </div>
                   
                   {selectedOrder.allTableOrders ? (
-                    // Mostrar todos os pedidos agrupados
+                    // Mostrar todos os pedidos da mesa agrupados
                     selectedOrder.allTableOrders.map((order, orderIndex) => (
                       <div key={order.id} style={{ marginBottom: '10px' }}>
                         {selectedOrder.allTableOrders.length > 1 && (
