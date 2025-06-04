@@ -1,8 +1,12 @@
 {
   "/_app": "pages/_app.js",
   "/_error": "pages/_error.js",
+  "/admin/reports": "pages/admin/reports.html",
+  "/admin/settings": "pages/admin/settings.html",
+  "/admin": "pages/admin.html",
+  "/kitchen": "pages/kitchen.html",
+  "/reports": "pages/reports.html",
+  "/menu": "pages/menu.html",
   "/_document": "pages/_document.js",
-  "/menu": "pages/menu.js",
-  "/kitchen": "pages/kitchen.js",
-  "/admin": "pages/admin.js"
+  "/404": "pages/404.html"
 }

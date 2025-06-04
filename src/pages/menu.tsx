@@ -109,6 +109,18 @@ type Table = {
   status: 'available' | 'occupied' | 'reserved';
 };
 
+type RestaurantSettings = {
+  id: number;
+  name: string;
+  address: string;
+  cnpj: string;
+  phone: string;
+  email: string;
+  logo_url: string;
+  primary_color: string;
+  secondary_color: string;
+};
+
 export default function MenuPage() {
   const router = useRouter();
   const { table } = router.query;
@@ -116,6 +128,7 @@ export default function MenuPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [addons, setAddons] = useState<Addon[]>([]);
   const [sizeVariants, setSizeVariants] = useState<SizeVariant[]>([]);
+  const [restaurantSettings, setRestaurantSettings] = useState<RestaurantSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [order, setOrder] = useState<{ [key: number]: OrderItem }>({});
   const [snackbar, setSnackbar] = useState<{open: boolean, message: string, severity: 'success' | 'error' | 'info' | 'warning'}>({open: false, message: '', severity: 'info'});
@@ -201,6 +214,30 @@ export default function MenuPage() {
       if (menuData) {
         console.log(`${menuData.length} itens encontrados no cardápio`);
         setMenu(menuData);
+      }
+
+      // Buscar configurações do restaurante
+      const { data: settingsData, error: settingsError } = await supabase
+        .from('restaurant_settings')
+        .select('*')
+        .single();
+        
+      if (settingsError) {
+        console.error('Erro ao buscar configurações:', settingsError);
+        // Usar configurações padrão se não encontrar
+        setRestaurantSettings({
+          id: 1,
+          name: 'Cardápio Digital',
+          address: '',
+          cnpj: '',
+          phone: '',
+          email: '',
+          logo_url: '',
+          primary_color: '#1976d2',
+          secondary_color: '#dc004e'
+        });
+      } else {
+        setRestaurantSettings(settingsData);
       }
     } catch (e) {
       console.error('Exceção ao buscar dados:', e);
@@ -340,6 +377,104 @@ export default function MenuPage() {
     }, 0);
   };
 
+  // Gerar comprovante do pedido com informações do restaurante
+  const generateOrderReceipt = async (orderId: number, orderItems: any[]) => {
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('pt-BR');
+    const timeStr = now.toLocaleTimeString('pt-BR');
+    
+    // Buscar configurações atualizadas do restaurante
+    let currentSettings = restaurantSettings;
+    if (!currentSettings) {
+      try {
+        const { data: settingsData } = await supabase
+          .from('restaurant_settings')
+          .select('*')
+          .single();
+        currentSettings = settingsData;
+      } catch (error) {
+        console.error('Erro ao buscar configurações para impressão:', error);
+      }
+    }
+    
+    let receipt = `
+═══════════════════════════════════
+${currentSettings?.name || 'RESTAURANTE QR MENU'}
+═══════════════════════════════════
+${currentSettings?.address || 'Rua das Flores, 123 - Centro'}
+${currentSettings?.phone ? `Tel: ${currentSettings.phone}` : 'Tel: (11) 9999-9999'}
+${currentSettings?.cnpj ? `CNPJ: ${currentSettings.cnpj}` : 'CNPJ: 00.000.000/0001-00'}
+${currentSettings?.email ? `Email: ${currentSettings.email}` : ''}
+
+───────────────────────────────────
+COMPROVANTE DE PEDIDO
+───────────────────────────────────
+Pedido Nº: ${orderId}
+Mesa: ${table}
+Data: ${dateStr}
+Hora: ${timeStr}
+
+───────────────────────────────────
+ITENS DO PEDIDO:
+───────────────────────────────────
+`;
+
+    let total = 0;
+    orderItems.forEach(([menuItemId, orderItem]) => {
+      const menuItem = menu.find(item => item.id === Number(menuItemId));
+      if (!menuItem) return;
+
+      let itemPrice = menuItem.price;
+      if (orderItem.selected_size_variant) {
+        const variant = sizeVariants.find(sv => sv.id === orderItem.selected_size_variant);
+        if (variant) {
+          itemPrice += variant.price_modifier;
+        }
+      }
+
+      const subtotal = itemPrice * orderItem.quantity;
+      total += subtotal;
+
+      receipt += `${menuItem.name} (${orderItem.quantity}x)
+Preço unitário: R$ ${itemPrice.toFixed(2)}
+Subtotal: R$ ${subtotal.toFixed(2)}
+
+`;
+
+      // Adicionar adicionais
+      if (orderItem.selected_addons.length > 0) {
+        receipt += `Adicionais:\n`;
+        orderItem.selected_addons.forEach(addonId => {
+          const addon = addons.find(a => a.id === addonId);
+          if (addon) {
+            const addonTotal = addon.price * orderItem.quantity;
+            total += addonTotal;
+            receipt += `  + ${addon.name}: R$ ${addonTotal.toFixed(2)}\n`;
+          }
+        });
+        receipt += '\n';
+      }
+
+      if (orderItem.notes) {
+        receipt += `Observações: ${orderItem.notes}\n\n`;
+      }
+    });
+
+    receipt += `───────────────────────────────────
+TOTAL GERAL: R$ ${total.toFixed(2)}
+───────────────────────────────────
+
+Obrigado pela preferência!
+Aguarde, seu pedido já foi enviado
+para a cozinha.
+
+${currentSettings?.name || 'Restaurante QR Menu'}
+Sistema de Menu Digital
+═══════════════════════════════════`;
+
+    return receipt;
+  };
+
   // Enviar pedido para a cozinha
   const handleSubmit = async () => {
     try {
@@ -438,12 +573,30 @@ export default function MenuPage() {
         // Adicionar os adicionais do item
         if (orderItem.selected_addons.length > 0) {
           console.log(`Salvando ${orderItem.selected_addons.length} adicionais para o item ${itemData.id}:`, orderItem.selected_addons);
-          const addonPromises = orderItem.selected_addons.map(async (addonId) => {
+          
+          // Remover duplicatas dos adicionais selecionados
+          const uniqueAddonIds = [...new Set(orderItem.selected_addons)];
+          console.log(`Adicionais únicos após remoção de duplicatas: ${uniqueAddonIds.length}`);
+          
+          const addonPromises = uniqueAddonIds.map(async (addonId) => {
             // Buscar informações do addon
             const addon = addons.find(a => a.id === addonId);
             if (!addon) {
               console.error(`Addon ${addonId} não encontrado`);
               return false;
+            }
+            
+            // Verificar se o addon já existe para este item (prevenção adicional)
+            const { data: existingAddon } = await supabase
+              .from('order_item_addons')
+              .select('id')
+              .eq('order_item_id', itemData.id)
+              .eq('addon_id', addonId)
+              .single();
+              
+            if (existingAddon) {
+              console.log(`Addon ${addonId} (${addon.name}) já existe para o item ${itemData.id}, pulando...`);
+              return true;
             }
             
             const { error: addonError } = await supabase
@@ -468,7 +621,7 @@ export default function MenuPage() {
           if (addonResults.some(result => !result)) {
             console.error(`Alguns adicionais do item ${menu_item_id} não puderam ser salvos`);
           } else {
-            console.log(`Todos os ${orderItem.selected_addons.length} adicionais do item ${menu_item_id} foram salvos com sucesso`);
+            console.log(`Todos os ${uniqueAddonIds.length} adicionais únicos do item ${menu_item_id} foram salvos com sucesso`);
           }
         } else {
           console.log(`Nenhum adicional selecionado para o item ${menu_item_id}`);
@@ -497,6 +650,18 @@ export default function MenuPage() {
         setSnackbar({open: true, message: 'Alguns itens não puderam ser adicionados ao pedido', severity: 'warning'});
       } else {
         console.log('Todos os itens adicionados com sucesso');
+        
+        // Gerar comprovante do pedido
+        const orderItems = Object.entries(order).filter(([_, orderItem]) => orderItem.quantity > 0);
+        const receipt = await generateOrderReceipt(orderData.id, orderItems);
+        
+        // Exibir comprovante no console (para fins de desenvolvimento/debug)
+        console.log('COMPROVANTE DO PEDIDO:');
+        console.log(receipt);
+        
+        // Salvar comprovante no localStorage para eventual impressão
+        localStorage.setItem(`receipt_${orderData.id}`, receipt);
+        
         setSnackbar({open: true, message: 'Pedido enviado para a cozinha!', severity: 'success'});
         setOrder({}); // Limpar o carrinho
       }
@@ -547,15 +712,33 @@ export default function MenuPage() {
             alignItems: 'center'
           }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Avatar sx={{ bgcolor: 'primary.main', width: 40, height: 40 }}>
-                <RestaurantIcon />
+              <Avatar sx={{ 
+                bgcolor: restaurantSettings?.logo_url ? 'transparent' : 'primary.main', 
+                width: 40, 
+                height: 40,
+                border: restaurantSettings?.logo_url ? 'none' : undefined
+              }}>
+                {restaurantSettings?.logo_url ? (
+                  <img 
+                    src={restaurantSettings.logo_url} 
+                    alt="Logo" 
+                    style={{ 
+                      width: '100%', 
+                      height: '100%', 
+                      objectFit: 'cover',
+                      borderRadius: '50%'
+                    }} 
+                  />
+                ) : (
+                  <RestaurantIcon />
+                )}
               </Avatar>
               <Box>
                 <Typography variant="h6" sx={{ fontWeight: 700, color: 'primary.main', lineHeight: 1 }}>
                   Mesa {table}
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
-                  Cardápio Digital
+                  {restaurantSettings?.name || 'Cardápio Digital'}
                 </Typography>
               </Box>
             </Box>
@@ -598,6 +781,31 @@ export default function MenuPage() {
           transition={{ duration: 0.6 }}
         >
           <Box sx={{ mb: 3, textAlign: 'center' }}>
+            {/* Logo do Restaurante */}
+            {restaurantSettings?.logo_url && (
+              <Box sx={{ mb: 2 }}>
+                <Avatar 
+                  sx={{ 
+                    width: 80, 
+                    height: 80, 
+                    mx: 'auto',
+                    boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+                    border: '3px solid rgba(255,255,255,0.3)'
+                  }}
+                >
+                  <img 
+                    src={restaurantSettings.logo_url} 
+                    alt="Logo do Restaurante" 
+                    style={{ 
+                      width: '100%', 
+                      height: '100%', 
+                      objectFit: 'cover',
+                      borderRadius: '50%'
+                    }} 
+                  />
+                </Avatar>
+              </Box>
+            )}
             <Typography 
               variant="h4" 
               sx={{ 
@@ -607,7 +815,7 @@ export default function MenuPage() {
                 textShadow: '0 2px 10px rgba(0,0,0,0.3)'
               }}
             >
-              Bem-vindo!
+              {restaurantSettings?.name || 'Bem-vindo!'}
             </Typography>
             <Typography 
               variant="body1" 
@@ -617,7 +825,7 @@ export default function MenuPage() {
                 textShadow: '0 1px 5px rgba(0,0,0,0.3)'
               }}
             >
-              Escolha seus pratos favoritos e faça seu pedido
+              {restaurantSettings?.name ? 'Escolha seus pratos favoritos e faça seu pedido' : 'Escolha seus pratos favoritos e faça seu pedido'}
             </Typography>
             <Stack direction="row" spacing={1} justifyContent="center">
               <Chip 
@@ -1195,13 +1403,7 @@ export default function MenuPage() {
                           overflow: 'hidden',
                           '&:last-child': { mb: 0 }
                         }}
-                        onClick={() => {
-                          if (selectedAddons.includes(addon.id)) {
-                            setSelectedAddons(prev => prev.filter(id => id !== addon.id));
-                          } else {
-                            setSelectedAddons(prev => [...prev, addon.id]);
-                          }
-                        }}
+
                       >
                         <FormControlLabel
                           control={

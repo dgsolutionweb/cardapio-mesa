@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import { useRouter } from 'next/router';
 import {
   AppBar, Toolbar, Typography, Drawer, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Divider, IconButton, Button, Box, Grid, Card, CardContent, CardActions, TextField, Dialog, DialogTitle, DialogContent, DialogActions, Snackbar, Alert, useTheme, useMediaQuery, CircularProgress, Avatar, Paper, FormControl, InputLabel, Select, MenuItem, Chip, Checkbox, FormControlLabel, Switch
 } from '@mui/material';
@@ -25,6 +26,7 @@ import DoneAllIcon from '@mui/icons-material/DoneAll';
 import PeopleIcon from '@mui/icons-material/People';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import PrintIcon from '@mui/icons-material/Print';
+import BarChartIcon from '@mui/icons-material/BarChart';
 import dynamic from 'next/dynamic';
 import { motion } from 'framer-motion';
 import { useReactToPrint } from 'react-to-print';
@@ -64,6 +66,7 @@ const GlobalStyles = () => (
 );
 
 export default function AdminPage() {
+  const router = useRouter();
   // Mesas
   const [tables, setTables] = useState<{id:number,number:number,status:string}[]>([]);
   const [newTable, setNewTable] = useState('');
@@ -906,11 +909,20 @@ export default function AdminPage() {
   const [currentPage, setCurrentPage] = useState<'tables' | 'menu' | 'orders' | 'settings'>('tables');
   
   const handlePageChange = (page: 'tables' | 'menu' | 'orders' | 'settings') => {
+    if (page === 'settings') {
+      // Navegar para a página de configurações dedicada
+      router.push('/admin/settings');
+      return;
+    }
     setCurrentPage(page);
     // Fechar drawer automaticamente no mobile após navegar
     if (isMobile) {
       setDrawerOpen(false);
     }
+  };
+
+  const handleReportsClick = () => {
+    router.push('/admin/reports');
   };
   const drawer = (
     <Box sx={{ 
@@ -1227,6 +1239,53 @@ export default function AdminPage() {
                     sx: {
                       textShadow: currentPage === 'orders' ? '0 2px 4px rgba(0,0,0,0.3)' : 'none'
                     }
+                  }}
+                />
+              </ListItemButton>
+            </ListItem>
+          </motion.div>
+          
+          <motion.div
+            initial={{ x: -50, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            transition={{ delay: 0.35, duration: 0.3 }}
+          >
+            <ListItem disablePadding>
+              <ListItemButton 
+                onClick={() => router.push('/admin/reports')} 
+                sx={{
+                  borderRadius: 4,
+                  py: 2,
+                  px: 3,
+                  background: 'transparent',
+                  backdropFilter: 'none',
+                  border: '2px solid transparent',
+                  transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+                  position: 'relative',
+                  overflow: 'hidden',
+                  '&:hover': { 
+                    background: 'rgba(255,255,255,0.2)',
+                    backdropFilter: 'blur(15px)',
+                    transform: 'translateX(8px) scale(1.02)',
+                    border: '2px solid rgba(255,255,255,0.3)',
+                    boxShadow: '0 8px 25px rgba(0,0,0,0.15)'
+                  }
+                }}
+              >
+                <ListItemIcon sx={{ minWidth: 48 }}>
+                  <BarChartIcon sx={{ 
+                    color: 'white', 
+                    fontSize: 28,
+                    transition: 'all 0.3s ease'
+                  }} />
+                </ListItemIcon>
+                <ListItemText 
+                  primary="Relatórios" 
+                  primaryTypographyProps={{
+                    fontWeight: 600,
+                    color: 'white',
+                    fontSize: '1rem',
+                    letterSpacing: 0.5
                   }}
                 />
               </ListItemButton>
